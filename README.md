@@ -6,7 +6,7 @@ This project builds a scalable and repeatable data engineering pipeline that com
 
 The pipeline follows the Medallion Architecture pattern:
 
-Source → Bronze → Silver → Gold
+Source â†’ Bronze â†’ Silver â†’ Gold
 
 By integrating taxi trips, weather conditions, taxi zone metadata, and traffic disruptions, the dataset enables analysis of mobility demand, travel behavior, and operational disruptions across New York City.
 
@@ -141,27 +141,27 @@ Contains:
 # Architecture
 
 ```text
-                ┌─────────────┐
-                │ Source Data │
-                └──────┬──────┘
-                       │
-                       ▼
-                ┌─────────────┐
-                │   Bronze    │
-                │ Raw Ingest  │
-                └──────┬──────┘
-                       │
-                       ▼
-                ┌─────────────┐
-                │   Silver    │
-                │ Clean Data  │
-                │ Standardized│
-                │ Deduped     │
-                └──────┬──────┘
-                       │
-                       ▼
-                ┌─────────────┐
-                │    Gold     │
-                │ Integrated  │
-                │ Analytics   │
-                └─────────────┘
+                â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                â”‚ Source Data â”‚
+                â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜
+                       â”‚
+                       â–¼
+                â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                â”‚   Bronze    â”‚
+                â”‚ Raw Ingest  â”‚
+                â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜
+                       â”‚
+                       â–¼
+                â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                â”‚   Silver    â”‚
+                â”‚ Clean Data  â”‚
+                â”‚ Standardizedâ”‚
+                â”‚ Deduped     â”‚
+                â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜
+                       â”‚
+                       â–¼
+                â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                â”‚    Gold     â”‚
+                â”‚ Integrated  â”‚
+                â”‚ Analytics   â”‚
+                â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
