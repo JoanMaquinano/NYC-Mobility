@@ -1,0 +1,18 @@
+[sqlfluff]
+dialect = databricks
+templater = python
+max_line_length = 120
+
+[sqlfluff:indentation]
+tab_space_size = 4
+indent_unit = space
+column_delta_in_select_clause = true
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = upper
+
+[sqlfluff:rules:capitalisation.functions]
+capitalisation_policy = upper
+
+[sqlfluff:rules:aliasing.column]
+aliasing = explicit
