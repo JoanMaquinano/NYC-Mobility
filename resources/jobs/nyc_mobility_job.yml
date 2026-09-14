@@ -1,0 +1,12 @@
+resources:
+  jobs:
+    nyc_mobility_job:
+      name: ${bundle.target}-nyc-mobility
+      tasks:
+        - task_key: pipeline_test_runner
+          existing_cluster_id: ${var.cluster_id}
+          spark_python_task:
+            python_file: src/shared/monitoring/03_run_pipeline_tests.py
+            parameters:
+              - --pipeline-root
+              - src
