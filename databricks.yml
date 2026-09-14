@@ -1,0 +1,16 @@
+bundle:
+  name: nyc_mobility
+
+include:
+  - resources/*.yml
+
+sync:
+  include:
+    - src/**
+    - tests/**
+    - docs/**
+
+variables:
+  cluster_id:
+    description: Existing Databricks cluster used by the placeholder job.
+    default: TODO_SET_CLUSTER_ID

@@ -4,6 +4,30 @@
 
 This project builds a scalable and repeatable data engineering pipeline that combines multiple NYC public datasets into a trusted mobility analytics dataset.
 
+## Repository layout
+
+The source tree is domain-first and keeps Bronze, Silver, and Gold execution
+order in each domain:
+
+```text
+src/
+├── green_taxi/{bronze,silver,gold}/
+├── weather/{bronze,silver,gold}/
+├── taxi_zones/{bronze,silver,gold}/
+├── traffic_advisories/{bronze,silver,gold}/
+└── shared/{setup,monitoring}/
+tests/
+docs/
+resources/
+databricks.yml
+```
+
+`src/shared/setup` contains the ordered table setup SQL. `tests` contains the
+indexed QC scripts, `docs` contains all Markdown documentation, and
+`07_dashboard` retains the dashboard placeholders. The Databricks Asset Bundle
+is a deployment scaffold only; configure the `cluster_id` variable and
+environment-specific task contracts before deploying.
+
 The pipeline follows the Medallion Architecture pattern:
 
 Source → Bronze → Silver → Gold
