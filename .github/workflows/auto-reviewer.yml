@@ -6,13 +6,16 @@ on:
       - opened
       - ready_for_review
 
+permissions:
+  pull-requests: write
+
 jobs:
   assign-reviewer:
     runs-on: ubuntu-latest
 
     steps:
       - name: Assign reviewer based on author
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -27,16 +30,11 @@ jobs:
             const author = context.payload.pull_request.user.login;
             const reviewers = reviewerMap[author];
 
-            if (!reviewers) {
-              core.info(`No reviewer configured for ${author}`);
-              return;
-            }
+            if (!reviewers) return;
 
             await github.rest.pulls.requestReviewers({
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: context.payload.pull_request.number,
-              reviewers: reviewers
+              reviewers
             });
-
-            core.info(`Assigned reviewers: ${reviewers.join(", ")}`);
