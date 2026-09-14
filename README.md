@@ -24,13 +24,13 @@ databricks.yml
 
 `src/shared/setup` contains the ordered table setup SQL. `tests` contains the
 indexed QC scripts, `docs` contains all Markdown documentation, and
-`07_dashboard` retains the dashboard placeholders. The Databricks Asset Bundle
+`dashboards/` retains the dashboard placeholders. The Databricks Asset Bundle
 is a deployment scaffold only; configure the `cluster_id` variable and
 environment-specific task contracts before deploying.
 
 The pipeline follows the Medallion Architecture pattern:
 
-Source â†’ Bronze â†’ Silver â†’ Gold
+Source -> Bronze -> Silver -> Gold
 
 By integrating taxi trips, weather conditions, taxi zone metadata, and traffic disruptions, the dataset enables analysis of mobility demand, travel behavior, and operational disruptions across New York City.
 
@@ -165,27 +165,14 @@ Contains:
 # Architecture
 
 ```text
-                â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-                â”‚ Source Data â”‚
-                â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜
-                       â”‚
-                       â–¼
-                â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-                â”‚   Bronze    â”‚
-                â”‚ Raw Ingest  â”‚
-                â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜
-                       â”‚
-                       â–¼
-                â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-                â”‚   Silver    â”‚
-                â”‚ Clean Data  â”‚
-                â”‚ Standardizedâ”‚
-                â”‚ Deduped     â”‚
-                â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜
-                       â”‚
-                       â–¼
-                â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-                â”‚    Gold     â”‚
-                â”‚ Integrated  â”‚
-                â”‚ Analytics   â”‚
-                â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+Source data
+    |
+    v
+Bronze: raw ingestion
+    |
+    v
+Silver: cleaned, standardized, deduplicated data
+    |
+    v
+Gold: integrated, analytics-ready tables
+```
