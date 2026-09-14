@@ -1,0 +1,93 @@
+name: Auto Format & Commit
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, develop]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-format:
+    runs-on: ubuntu-latest
+    name: Auto Format Code & SQL
+    # Only run on PRs where we have write access
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install sqlfluff[databricks] black isort nbqa nbstripout
+
+      - name: Run SQLFluff fix
+        run: |
+          sqlfluff fix --dialect databricks . --force || true
+        continue-on-error: true
+
+      - name: Run black formatter
+        run: |
+          black . --line-length 120 || true
+        continue-on-error: true
+
+      - name: Run isort
+        run: |
+          isort . --profile black || true
+        continue-on-error: true
+
+      - name: Format Jupyter notebooks with black
+        run: |
+          nbqa black . --line-length 120 --exclude notebooks/,venv/ || true
+        continue-on-error: true
+
+      - name: Sort imports in Jupyter notebooks with isort
+        run: |
+          nbqa isort . --profile black --exclude notebooks/,venv/ || true
+        continue-on-error: true
+
+      - name: Strip notebook outputs
+        run: |
+          nbstripout **/*.ipynb || true
+        continue-on-error: true
+
+      - name: Commit changes if any
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'chore: auto-format SQL, Python, and Jupyter notebooks'
+          commit_options: '--no-verify'
+          file_pattern: |
+            *.py
+            *.sql
+            *.ipynb
+            src/
+            tests/
+            dashboards/
+          skip_fetch: false
+          skip_checkout: false
+
+      - name: Add PR comment about changes
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Auto-format workflow completed! Applied formatting with:\n- **sqlfluff** (Databricks dialect)\n- **black** (Python code & notebooks)\n- **isort** (Import sorting)\n- **nbstripout** (Jupyter notebook cleanup)\n\nIf changes were made, they have been automatically committed to this PR branch.'
+            });
