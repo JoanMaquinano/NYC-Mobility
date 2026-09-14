@@ -1,0 +1,22 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate-project:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check src folder exists
+        run: test -d src
+
+      - name: Check docs folder exists
+        run: test -d docs
+
+      - name: Check SQL files exist
+        run: find . -name "*.sql" | grep .sql
