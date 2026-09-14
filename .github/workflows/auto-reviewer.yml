@@ -7,7 +7,9 @@ on:
       - ready_for_review
 
 permissions:
+  contents: read
   pull-requests: write
+  issues: write
 
 jobs:
   assign-reviewer:
@@ -28,9 +30,17 @@ jobs:
             };
 
             const author = context.payload.pull_request.user.login;
+
+            console.log(`Author: ${author}`);
+
             const reviewers = reviewerMap[author];
 
-            if (!reviewers) return;
+            console.log(`Reviewers: ${JSON.stringify(reviewers)}`);
+
+            if (!reviewers) {
+              console.log(`No reviewer configured for ${author}`);
+              return;
+            }
 
             await github.rest.pulls.requestReviewers({
               owner: context.repo.owner,
@@ -38,3 +48,5 @@ jobs:
               pull_number: context.payload.pull_request.number,
               reviewers
             });
+
+            console.log(`Assigned reviewers: ${reviewers.join(", ")}`);
