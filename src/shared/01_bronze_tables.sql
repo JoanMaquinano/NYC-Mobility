@@ -32,9 +32,9 @@ TBLPROPERTIES (
 -- Create bronze taxi_zones table
 CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_bronze.taxi_zones
 (
-    LocationID INT,
-    Borough STRING,
-    Zone STRING,
+    location_id INT,
+    borough STRING,
+    zone STRING,
     service_zone STRING,
     ingestion_time TIMESTAMP,
     source_file STRING
@@ -44,63 +44,10 @@ TBLPROPERTIES (
     'delta.columnMapping.mode' = 'name'
 );
 
--- Create bronze weather_raw table
-CREATE SCHEMA IF NOT EXISTS `nyc-mobility`.nyc_bronze;
 
-SET TIME ZONE 'UTC';
 
--- Weather March Bronze Table
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_bronze.weather_march_2026_bronze (
-    date STRING,
-    temperature_2m STRING,
-    apparent_temperature STRING,
-    precipitation_probability STRING,
-    rain STRING,
-    weather_code STRING,
-    cloud_cover STRING,
-    visibility STRING,
-    wind_speed_10m STRING,
-    wind_gusts_10m STRING,
-    month STRING,
-    latitude STRING,
-    longitude STRING,
-    source_series STRING,
-    ingestion_timestamp TIMESTAMP,
-    ingestion_date DATE,
-    source_file_month STRING
-)
-USING DELTA
-TBLPROPERTIES (
-    'delta.columnMapping.mode' = 'name'
-);
-
--- Weather April Bronze Table
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_bronze.weather_april_2026_bronze (
-    date STRING,
-    temperature_2m STRING,
-    apparent_temperature STRING,
-    precipitation_probability STRING,
-    rain STRING,
-    weather_code STRING,
-    cloud_cover STRING,
-    visibility STRING,
-    wind_speed_10m STRING,
-    wind_gusts_10m STRING,
-    month STRING,
-    latitude STRING,
-    longitude STRING,
-    source_series STRING,
-    ingestion_timestamp TIMESTAMP,
-    ingestion_date DATE,
-    source_file_month STRING
-)
-USING DELTA
-TBLPROPERTIES (
-    'delta.columnMapping.mode' = 'name'
-);
-
--- Weather May Bronze Table
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_bronze.weather_may_2026_bronze (
+-- Weather Bronze Table
+CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_bronze.weather (
     date STRING,
     temperature_2m STRING,
     apparent_temperature STRING,
