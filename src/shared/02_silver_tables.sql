@@ -1,6 +1,6 @@
 
 -- Create silver green_taxi
-CREATE TABLE IF NOT EXISTS 'nyc-mobility'.nyc_silver.green_taxi_clean (
+CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_silver.green_taxi_clean (
     vendor_id INT,
     lpep_pickup_datetime TIMESTAMP,
     lpep_dropoff_datetime TIMESTAMP,
