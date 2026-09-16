@@ -91,6 +91,10 @@ The primary business objectives are to:
 - Missing values may exist in source datasets and are not always considered data quality defects.
 - Incremental loads should produce the same analytical results as historical full loads.
 - Reprocessing the same source data should not introduce duplicate business records.
+Largest state in NYC to generalize
+Weather codes from Open-Meteo to check weather
+Traffic assumptions
+
 
 ---
 
