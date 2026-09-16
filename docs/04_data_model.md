@@ -530,3 +530,18 @@ Confirm dimensions that use surrogate keys and document relationship mappings.
 ## Final Cardinality Validation
 
 Validate all table relationships after implementation to ensure no many-to-many joins are introduced unintentionally.
+
+## Repository Structure
+Source-Oriented Architecture Explanation
+
+The whole:
+
+Plain Text
+1
+source-oriented
+2
+vs
+3
+layer-oriented
+
+used source oriented in github but layer oriented in databricks catalog

@@ -299,3 +299,13 @@ Examples:
 ## Surrogate Key Implementation
 
 Confirm which tables use surrogate keys and document key-generation logic.
+
+## Data Dictionary
+### taxi_zones_clean
+
+| Column | Data Type | Description |
+|----------|----------|----------|
+| location_id | INT | Unique taxi zone identifier |
+| borough | STRING | NYC borough |
+| zone | STRING | Taxi zone name |
+| service_zone | STRING | TLC service zone |
