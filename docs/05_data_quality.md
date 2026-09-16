@@ -202,10 +202,10 @@ LEFT JOIN dim_weather w
 WHERE w.weather_date IS NULL;
 ```
 
-Expeted Result:
+Expected Result:
 
 ```text
-0 records retutned
+0 records returned
 ```
 
 ---
@@ -218,7 +218,7 @@ The following items are still to be confirmed:
 Business key definition
 Weather coverage thresholds
 Traffic advisory validation rules
-Duplicate thresholss
+Duplicate thresholds
 Missing value thresholds
 Release blocking rules
 DQ reporting approach
