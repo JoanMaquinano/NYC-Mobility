@@ -1,6 +1,9 @@
-INSERT INTO nyc-mobility.nyc_bronze.taxi_zones
+INSERT INTO `nyc-mobility`.nyc_bronze.taxi_zones
 SELECT
-    *,
+    LocationID,
+    Borough,
+    Zone,
+    service_zone,
     current_timestamp() AS ingestion_time,
     _metadata.file_path AS source_file
 FROM read_files(
