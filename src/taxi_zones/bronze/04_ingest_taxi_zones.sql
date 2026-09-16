@@ -1,4 +1,19 @@
-INSERT INTO `nyc-mobility`.nyc_bronze.taxi_zones
+-- Create bronze taxi_zones table
+CREATE TABLE IF NOT EXISTS workspace.taxi_bronze.taxi_zones
+(
+  LocationID INT, 
+  Borough STRING,
+  Zone STRING,
+  service_zone STRING,
+  ingestion_time TIMESTAMP,
+  source_file STRING
+)
+USING DELTA
+TBLPROPERTIES (
+  'delta.columnMapping.mode' = 'name'
+);
+
+INSERT INTO workspace.taxi_bronze.taxi_zones
 SELECT
     LocationID,
     Borough,
