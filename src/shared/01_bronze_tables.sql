@@ -59,11 +59,7 @@ CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_bronze.weather (
     wind_speed_10m STRING,
     wind_gusts_10m STRING,
     month STRING,
-    latitude STRING,
-    longitude STRING,
-    source_series STRING,
     ingestion_timestamp TIMESTAMP,
-    ingestion_date DATE,
     source_file_month STRING
 )
 USING DELTA
