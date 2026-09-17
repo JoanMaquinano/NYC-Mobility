@@ -4,7 +4,7 @@
 --   2. Granular partition keys (adds distance & total to key to prevent dropping simultaneous trips).
 --   3. Unified QC validation logic operating directly on casted timestamp types.
 
-MERGE INTO `nyc-mobility`.nyc_silver.green_taxi AS target
+MERGE INTO `nyc-mobility`.nyc_silver.green_taxi_clean AS target
 USING (
   SELECT
     vendor_id,
