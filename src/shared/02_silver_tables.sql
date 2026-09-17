@@ -30,22 +30,19 @@ TBLPROPERTIES (
 
 -- Create silver weather table
 CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_silver.weather_clean (
-    date STRING,
+  date STRING,
     temperature_2m STRING,
     apparent_temperature STRING,
     precipitation_probability STRING,
     rain STRING,
     weather_code STRING,
+    weather_description STRING,
     cloud_cover STRING,
     visibility STRING,
     wind_speed_10m STRING,
     wind_gusts_10m STRING,
     month STRING,
-    latitude STRING,
-    longitude STRING,
-    source_series STRING,
     ingestion_timestamp TIMESTAMP,
-    ingestion_date DATE,
     source_file_month STRING
 )
 USING DELTA
