@@ -2,14 +2,14 @@
 -- DBTITLE 1,Weather Silver - Clean and Validate
 -- WEATHER SILVER: Clean and validate bronze weather data
 -- Reads from: `nyc-mobility`.nyc_bronze.weather
--- Writes to: `nyc-mobility`.nyc_silver.weather_cleaned (MERGE)
+-- Writes to: `nyc-mobility`.nyc_silver.weather_clean (MERGE)
 -- Converts string columns to proper types, validates ranges, deduplicates
 
 -- COMMAND ----------
 
 -- DBTITLE 1,Create cleaned weather silver table
 -- MERGE cleaned weather data into silver table (rounded to 2 decimal places, with weather descriptions)
-MERGE INTO `nyc-mobility`.nyc_silver.weather_cleaned AS target
+MERGE INTO `nyc-mobility`.nyc_silver.weather_clean AS target
 USING (
   SELECT
     date,
@@ -100,18 +100,18 @@ WHEN NOT MATCHED THEN INSERT *;
 -- Validation queries
 -- 1. Count rows by month (expect: March=744, April=720, May=744)
 SELECT month, COUNT(*) AS row_count
-FROM `nyc-mobility`.nyc_silver.weather_cleaned
+FROM `nyc-mobility`.nyc_silver.weather_clean
 GROUP BY month
 ORDER BY month;
 
 -- 2. Check for duplicates
 SELECT COUNT(*) AS total_rows,
        COUNT(DISTINCT date) AS unique_dates
-FROM `nyc-mobility`.nyc_silver.weather_cleaned;
+FROM `nyc-mobility`.nyc_silver.weather_clean;
 
 -- 3. Preview cleaned data with weather descriptions
 SELECT date, temperature_2m, apparent_temperature, rain, 
        weather_code, weather_description, wind_speed_10m, cloud_cover
-FROM `nyc-mobility`.nyc_silver.weather_cleaned
+FROM `nyc-mobility`.nyc_silver.weather_clean
 ORDER BY date
 LIMIT 10;
