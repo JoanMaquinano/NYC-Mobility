@@ -2,29 +2,30 @@
 -- DBTITLE 1,Weather Silver - Clean and Validate
 -- WEATHER SILVER: Clean and validate bronze weather data
 -- Reads from: `nyc-mobility`.nyc_bronze.weather
--- Writes to: `nyc-mobility`.nyc_silver.weather_clean (MERGE)
+-- Writes to: `nyc-mobility`.nyc_silver.weather_cleaned (MERGE)
 -- Converts string columns to proper types, validates ranges, deduplicates
 
 -- COMMAND ----------
 
 -- DBTITLE 1,Create cleaned weather silver table
--- Create cleaned weather silver table (rounded to 2 decimal places, with weather descriptions)
-CREATE OR REPLACE TABLE `nyc-mobility`.nyc_silver.weather_clean AS
-SELECT
-  date,
-  temperature_2m,
-  apparent_temperature,
-  precipitation_probability,
-  rain,
-  weather_code,
-  weather_description,
-  cloud_cover,
-  visibility,
-  wind_speed_10m,
-  wind_gusts_10m,
-  month,
-  ingestion_timestamp
-FROM (
+-- MERGE cleaned weather data into silver table (rounded to 2 decimal places, with weather descriptions)
+MERGE INTO `nyc-mobility`.nyc_silver.weather_cleaned AS target
+USING (
+  SELECT
+    date,
+    temperature_2m,
+    apparent_temperature,
+    precipitation_probability,
+    rain,
+    weather_code,
+    weather_description,
+    cloud_cover,
+    visibility,
+    wind_speed_10m,
+    wind_gusts_10m,
+    month,
+    ingestion_timestamp
+  FROM (
   SELECT
     -- Core attributes with rounding to 2 decimal places
     date,
@@ -87,7 +88,11 @@ WHERE weather_timestamp IS NOT NULL
 QUALIFY ROW_NUMBER() OVER (
   PARTITION BY date
   ORDER BY ingestion_timestamp DESC
-) = 1;
+) = 1
+) AS source
+ON target.date <=> source.date
+WHEN MATCHED THEN UPDATE SET *
+WHEN NOT MATCHED THEN INSERT *;
 
 -- COMMAND ----------
 
@@ -95,18 +100,18 @@ QUALIFY ROW_NUMBER() OVER (
 -- Validation queries
 -- 1. Count rows by month (expect: March=744, April=720, May=744)
 SELECT month, COUNT(*) AS row_count
-FROM `nyc-mobility`.nyc_silver.weather_clean
+FROM `nyc-mobility`.nyc_silver.weather_cleaned
 GROUP BY month
 ORDER BY month;
 
 -- 2. Check for duplicates
 SELECT COUNT(*) AS total_rows,
        COUNT(DISTINCT date) AS unique_dates
-FROM `nyc-mobility`.nyc_silver.weather_clean;
+FROM `nyc-mobility`.nyc_silver.weather_cleaned;
 
 -- 3. Preview cleaned data with weather descriptions
 SELECT date, temperature_2m, apparent_temperature, rain, 
        weather_code, weather_description, wind_speed_10m, cloud_cover
-FROM `nyc-mobility`.nyc_silver.weather_clean
+FROM `nyc-mobility`.nyc_silver.weather_cleaned
 ORDER BY date
 LIMIT 10;
