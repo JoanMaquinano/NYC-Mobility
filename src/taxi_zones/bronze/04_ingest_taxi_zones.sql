@@ -1,7 +1,4 @@
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_bronze.taxi_zones 
-USING DELTA
-TBLPROPERTIES ('delta.columnMapping.mode' = 'name')
-AS
+INSERT INTO `nyc-mobility`.nyc_bronze.taxi_zones
 SELECT
     LocationID AS location_id,
     Borough AS borough,
