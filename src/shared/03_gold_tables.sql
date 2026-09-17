@@ -28,12 +28,19 @@ TBLPROPERTIES (
 );
 
 CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_gold.dim_weather (
-    weather_key STRING NOT NULL,
-    weather_date DATE,
-    temp_max_c DOUBLE,
-    temp_min_c DOUBLE,
-    precipitation_mm DOUBLE,
-    weather_condition STRING
+  weather_key STRING,
+  weather_date DATE,
+  weather_timestamp TIMESTAMP,
+  temp_max_c DOUBLE,
+  temp_min_c DOUBLE,
+  temp_avg_c DOUBLE,
+  feels_like_avg_c DOUBLE,
+  precipitation_mm DOUBLE,
+  rain_hours DOUBLE,
+  wind_speed DOUBLE,
+  wind_gust DOUBLE,
+  weather_code INT,
+  weather_condition STRING
 )
 USING DELTA
 TBLPROPERTIES (
