@@ -1,4 +1,4 @@
-INSERT OVERWRITE `nyc-mobility`.nyc_silver.taxi_zones_clean
+CREATE OR REPLACE TABLE `nyc-mobility`.nyc_silver.taxi_zones_clean
 SELECT
     CAST(LocationID AS INT) AS location_id,
     TRIM(Borough) AS borough,
@@ -15,4 +15,15 @@ FROM (
     FROM `nyc-mobility`.nyc_bronze.taxi_zones
 )
 WHERE rn = 1
-  AND LocationID IS NOT NULL;
+  AND LocationID IS NOT NULL
+  AND TRIM(Borough) IS NOT NULL
+  AND TRIM(Zone) IS NOT NULL
+  AND TRIM(service_zone)
+  IS NOT NULL
+  AND ingestion_time IS NOT NULL
+  )
+USING DELTA
+TBLPROPERTIES (
+    'delta.columnMapping.mode' = 'name'
+);
+  
