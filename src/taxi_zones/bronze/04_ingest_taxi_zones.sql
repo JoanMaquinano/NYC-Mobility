@@ -1,8 +1,11 @@
-INSERT INTO `nyc-mobility`.nyc_bronze.taxi_zones
+CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_bronze.taxi_zones 
+USING DELTA
+TBLPROPERTIES ('delta.columnMapping.mode' = 'name')
+AS
 SELECT
-    LocationID,
-    Borough,
-    Zone,
+    LocationID AS location_id,
+    Borough AS borough,
+    Zone AS zone,
     service_zone,
     current_timestamp() AS ingestion_time,
     _metadata.file_path AS source_file
