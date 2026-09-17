@@ -3,7 +3,7 @@
 -- WEATHER SILVER: Clean and validate bronze weather data
 -- Reads from: `nyc-mobility`.nyc_bronze.weather
 -- Writes to: `nyc-mobility`.nyc_silver.weather_clean (MERGE)
--- Converts string columns to proper types, validates ranges, deduplicates
+-- Converts string columns to proper types, validates ranges, deduplicates.
 
 -- COMMAND ----------
 
