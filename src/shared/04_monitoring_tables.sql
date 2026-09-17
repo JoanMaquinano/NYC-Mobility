@@ -2,7 +2,7 @@
 
 --  **Run once.** Creates the two tables every quality check writes to.
 -- 
---  Two tables, not more. `dq_results` is the detail (one row per check per
+--  Two tables:`dq_results` is the detail (one row per check per
 --  run) and `dq_run_log` is the audit log (one row per layer per run).
 --  Everything else — dashboards, trend lines, "which check fails most" —
 --  is a query over these two, not another table.
@@ -17,7 +17,7 @@ CREATE SCHEMA IF NOT EXISTS `nyc-mobility`.nyc_quality;
 USE CATALOG `nyc-mobility`;
 USE SCHEMA nyc_quality;
 
---  ## dq_results — one row per check, per run
+-- dq_results — one row per check, per run
 
 CREATE TABLE IF NOT EXISTS dq_results (
     run_id          STRING     COMMENT 'groups every check from one pipeline run',
