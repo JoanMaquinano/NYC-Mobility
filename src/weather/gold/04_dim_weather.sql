@@ -3,7 +3,7 @@
 -- Parse weather and taxi timestamps using the same timezone convention.
 -- If the DAILY merge was previously run, migrate daily rows and their fact
 -- references before loading hourly data; do not mix daily and hourly keys.
--- With one Silver observation per hour, temperature min/max/avg are equal.
+-- Temperature min/max are daily aggregates; temp_avg is the hourly observation.
 -- precipitation_mm measures rain only. Wind fields retain Silver's units.
 
 MERGE INTO `nyc-mobility`.nyc_gold.dim_weather AS target
@@ -50,8 +50,8 @@ USING (
     DATE_FORMAT(weather_timestamp, 'yyyyMMddHH') AS weather_key,
     CAST(weather_timestamp AS DATE) AS weather_date,
     weather_timestamp,
-    CAST(temperature_2m AS DOUBLE) AS temp_max_c,
-    CAST(temperature_2m AS DOUBLE) AS temp_min_c,
+    MAX(CAST(temperature_2m AS DOUBLE)) OVER (PARTITION BY CAST(weather_timestamp AS DATE)) AS temp_max_c,
+    MIN(CAST(temperature_2m AS DOUBLE)) OVER (PARTITION BY CAST(weather_timestamp AS DATE)) AS temp_min_c,
     CAST(temperature_2m AS DOUBLE) AS temp_avg_c,
     CAST(apparent_temperature AS DOUBLE) AS feels_like_avg_c,
     CAST(rain AS DOUBLE) AS precipitation_mm,
