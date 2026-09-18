@@ -1,0 +1,1976 @@
+{
+  "datasets": [
+    {
+      "name": "dq_rules",
+      "displayName": "DQ Rules Catalogue",
+      "queryLines": [
+        "SELECT\n",
+        "  layer,\n",
+        "  table_name,\n",
+        "  check_category,\n",
+        "  check_name,\n",
+        "  threshold_pct,\n",
+        "  rule_description,\n",
+        "  rationale,\n",
+        "  silver_action,\n",
+        "  blocking,\n",
+        "  denominator_scope\n",
+        "FROM\n",
+        "  `nyc-mobility`.nyc_quality.dq_rules\n",
+        "ORDER BY\n",
+        "  layer,\n",
+        "  table_name,\n",
+        "  check_category"
+      ]
+    },
+    {
+      "name": "latest_results",
+      "displayName": "Latest DQ Check Results",
+      "queryLines": [
+        "SELECT\n",
+        "  layer,\n",
+        "  table_name,\n",
+        "  check_category,\n",
+        "  check_name,\n",
+        "  failed_rows,\n",
+        "  total_rows,\n",
+        "  failed_pct,\n",
+        "  threshold_pct,\n",
+        "  status\n",
+        "FROM\n",
+        "  `nyc-mobility`.nyc_quality.vw_latest_dq_results\n",
+        "ORDER BY\n",
+        "  CASE status\n",
+        "    WHEN 'FAIL' THEN 0\n",
+        "    WHEN 'WARN' THEN 1\n",
+        "    ELSE 2\n",
+        "  END,\n",
+        "  failed_pct DESC"
+      ]
+    },
+    {
+      "name": "failures_detail",
+      "displayName": "Failures & Warnings Detail",
+      "queryLines": [
+        "SELECT\n",
+        "  d.layer,\n",
+        "  d.table_name,\n",
+        "  d.check_name,\n",
+        "  d.check_category,\n",
+        "  d.failed_rows,\n",
+        "  d.total_rows,\n",
+        "  d.failed_pct,\n",
+        "  d.threshold_pct,\n",
+        "  d.status,\n",
+        "  r.blocking,\n",
+        "  r.silver_action,\n",
+        "  r.rule_description,\n",
+        "  r.rationale,\n",
+        "  CASE\n",
+        "    WHEN\n",
+        "      d.status = 'FAIL'\n",
+        "      AND r.blocking = true\n",
+        "    THEN\n",
+        "      'BLOCKING FAIL'\n",
+        "    WHEN d.status = 'FAIL' THEN 'FAIL (recorded)'\n",
+        "    ELSE d.status\n",
+        "  END AS severity\n",
+        "FROM\n",
+        "  `nyc-mobility`.nyc_quality.vw_latest_dq_results d\n",
+        "    LEFT JOIN `nyc-mobility`.nyc_quality.dq_rules r\n",
+        "      ON d.layer = r.layer\n",
+        "      AND d.table_name = r.table_name\n",
+        "      AND d.check_name = r.check_name\n",
+        "WHERE\n",
+        "  d.status <> 'PASS'\n",
+        "ORDER BY\n",
+        "  CASE\n",
+        "    WHEN r.blocking = true THEN 0\n",
+        "    ELSE 1\n",
+        "  END,\n",
+        "  d.failed_pct DESC"
+      ]
+    },
+    {
+      "name": "run_history",
+      "displayName": "DQ Run History",
+      "queryLines": [
+        "SELECT\n",
+        "  run_id,\n",
+        "  run_ts,\n",
+        "  layer,\n",
+        "  tables_checked,\n",
+        "  checks_run,\n",
+        "  checks_passed,\n",
+        "  checks_warned,\n",
+        "  checks_failed,\n",
+        "  overall_status,\n",
+        "  finished_at\n",
+        "FROM\n",
+        "  `nyc-mobility`.nyc_quality.dq_run_log\n",
+        "ORDER BY\n",
+        "  run_ts DESC"
+      ]
+    },
+    {
+      "name": "latest_run",
+      "displayName": "Latest DQ Run Summary",
+      "queryLines": [
+        "SELECT\n",
+        "  run_id,\n",
+        "  run_ts,\n",
+        "  layer,\n",
+        "  tables_checked,\n",
+        "  checks_run,\n",
+        "  checks_passed,\n",
+        "  checks_warned,\n",
+        "  checks_failed,\n",
+        "  overall_status,\n",
+        "  finished_at\n",
+        "FROM\n",
+        "  `nyc-mobility`.nyc_quality.vw_latest_dq_run\n",
+        "ORDER BY\n",
+        "  layer"
+      ]
+    },
+    {
+      "name": "rationale_tags",
+      "displayName": "DQ Rationale Tag Breakdown",
+      "queryLines": [
+        "SELECT\n",
+        "  CASE\n",
+        "    WHEN rationale LIKE '[structural]%' THEN 'structural'\n",
+        "    WHEN rationale LIKE '[tolerated]%' THEN 'tolerated'\n",
+        "    WHEN rationale LIKE '[provisional]%' THEN 'provisional'\n",
+        "    ELSE 'untagged'\n",
+        "  END AS rationale_tag,\n",
+        "  layer\n",
+        "FROM\n",
+        "  `nyc-mobility`.nyc_quality.dq_rules\n",
+        "WHERE\n",
+        "  layer IN ('bronze', 'silver', 'gold')"
+      ]
+    },
+    {
+      "name": "blocking_count",
+      "displayName": "Blocking Failures Count",
+      "queryLines": [
+        "SELECT\n",
+        "  COUNT(*) AS blocking_failures\n",
+        "FROM\n",
+        "  `nyc-mobility`.nyc_quality.vw_latest_dq_results d\n",
+        "    JOIN `nyc-mobility`.nyc_quality.dq_rules r\n",
+        "      ON d.layer = r.layer\n",
+        "      AND d.table_name = r.table_name\n",
+        "      AND d.check_name = r.check_name\n",
+        "WHERE\n",
+        "  d.status = 'FAIL'\n",
+        "  AND r.blocking = true"
+      ]
+    },
+    {
+      "name": "gold_run_summary",
+      "displayName": "Gold DQ Run Summary",
+      "queryLines": [
+        "SELECT\n",
+        "  checks_run,\n",
+        "  checks_passed,\n",
+        "  checks_warned,\n",
+        "  checks_failed,\n",
+        "  overall_status\n",
+        "FROM\n",
+        "  `nyc-mobility`.nyc_quality.vw_latest_dq_run\n",
+        "WHERE\n",
+        "  layer = 'gold'"
+      ]
+    },
+    {
+      "name": "gold_results",
+      "displayName": "Gold DQ Check Results",
+      "queryLines": [
+        "SELECT\n",
+        "  table_name,\n",
+        "  check_category,\n",
+        "  check_name,\n",
+        "  failed_rows,\n",
+        "  total_rows,\n",
+        "  failed_pct,\n",
+        "  threshold_pct,\n",
+        "  status\n",
+        "FROM\n",
+        "  `nyc-mobility`.nyc_quality.vw_latest_dq_results\n",
+        "WHERE\n",
+        "  layer = 'gold'\n",
+        "ORDER BY\n",
+        "  CASE status\n",
+        "    WHEN 'FAIL' THEN 0\n",
+        "    WHEN 'WARN' THEN 1\n",
+        "    ELSE 2\n",
+        "  END,\n",
+        "  failed_pct DESC"
+      ]
+    },
+    {
+      "name": "gold_at_rest",
+      "displayName": "Gold At-Rest Integrity Checks",
+      "queryLines": [
+        "SELECT\n",
+        "  check_name,\n",
+        "  failed_rows,\n",
+        "  total_rows,\n",
+        "  failed_pct,\n",
+        "  threshold_pct,\n",
+        "  status\n",
+        "FROM\n",
+        "  `nyc-mobility`.nyc_quality.vw_latest_dq_results\n",
+        "WHERE\n",
+        "  layer = 'gold'\n",
+        "  AND check_category = 'at_rest_integrity'\n",
+        "ORDER BY\n",
+        "  failed_rows DESC"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "a74e95dc",
+      "displayName": "Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "overview_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Data Quality Overview\n",
+                "Summary of the latest data quality pipeline runs across Bronze and Silver layers."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "total_checks",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "latest_run",
+                  "fields": [
+                    {
+                      "name": "sum(checks_run)",
+                      "expression": "SUM(`checks_run`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Total Checks Run"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(checks_run)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "checks_passed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "latest_run",
+                  "fields": [
+                    {
+                      "name": "sum(checks_passed)",
+                      "expression": "SUM(`checks_passed`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Checks Passed"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(checks_passed)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "checks_warned",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "latest_run",
+                  "fields": [
+                    {
+                      "name": "sum(checks_warned)",
+                      "expression": "SUM(`checks_warned`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Checks Warned"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(checks_warned)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "checks_failed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "latest_run",
+                  "fields": [
+                    {
+                      "name": "sum(checks_failed)",
+                      "expression": "SUM(`checks_failed`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Checks Failed"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(checks_failed)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "status_by_layer",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "latest_results",
+                  "fields": [
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "count(check_name)",
+                      "expression": "COUNT(`check_name`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Check Status by Layer"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "layer",
+                  "displayName": "layer",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "count(check_name)",
+                  "displayName": "check_name",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "status",
+                  "displayName": "status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "run_summary",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "latest_run",
+                  "fields": [
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "run_ts",
+                      "expression": "`run_ts`"
+                    },
+                    {
+                      "name": "tables_checked",
+                      "expression": "`tables_checked`"
+                    },
+                    {
+                      "name": "checks_run",
+                      "expression": "`checks_run`"
+                    },
+                    {
+                      "name": "checks_passed",
+                      "expression": "`checks_passed`"
+                    },
+                    {
+                      "name": "checks_warned",
+                      "expression": "`checks_warned`"
+                    },
+                    {
+                      "name": "checks_failed",
+                      "expression": "`checks_failed`"
+                    },
+                    {
+                      "name": "overall_status",
+                      "expression": "`overall_status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Latest Run Summary"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "layer"
+                  },
+                  {
+                    "fieldName": "run_ts"
+                  },
+                  {
+                    "fieldName": "tables_checked"
+                  },
+                  {
+                    "fieldName": "checks_run"
+                  },
+                  {
+                    "fieldName": "checks_passed"
+                  },
+                  {
+                    "fieldName": "checks_warned"
+                  },
+                  {
+                    "fieldName": "checks_failed"
+                  },
+                  {
+                    "fieldName": "overall_status"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "check_results",
+      "displayName": "Check Results by Table",
+      "layout": [
+        {
+          "widget": {
+            "name": "results_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Check Results by Table\n",
+                "Detailed data quality check results from the latest pipeline run, grouped by source table."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "status_by_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "latest_results",
+                  "fields": [
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "count(check_name)",
+                      "expression": "COUNT(`check_name`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Status by Table",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "table_name",
+                  "displayName": "table_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "count(check_name)",
+                  "displayName": "check_name",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "status",
+                  "displayName": "status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "all_results",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "latest_results",
+                  "fields": [
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "check_name",
+                      "expression": "`check_name`"
+                    },
+                    {
+                      "name": "check_category",
+                      "expression": "`check_category`"
+                    },
+                    {
+                      "name": "failed_rows",
+                      "expression": "`failed_rows`"
+                    },
+                    {
+                      "name": "total_rows",
+                      "expression": "`total_rows`"
+                    },
+                    {
+                      "name": "failed_pct",
+                      "expression": "`failed_pct`"
+                    },
+                    {
+                      "name": "threshold_pct",
+                      "expression": "`threshold_pct`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "All Check Results"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "layer"
+                  },
+                  {
+                    "fieldName": "table_name"
+                  },
+                  {
+                    "fieldName": "check_name"
+                  },
+                  {
+                    "fieldName": "check_category"
+                  },
+                  {
+                    "fieldName": "failed_rows"
+                  },
+                  {
+                    "fieldName": "total_rows"
+                  },
+                  {
+                    "fieldName": "failed_pct"
+                  },
+                  {
+                    "fieldName": "threshold_pct"
+                  },
+                  {
+                    "fieldName": "status"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 12,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "failures",
+      "displayName": "Failures & Warnings",
+      "layout": [
+        {
+          "widget": {
+            "name": "failures_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Failures & Warnings\n",
+                "Non-passing checks with rule descriptions, blocking flags, and severity classification."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "blocking_failures",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "blocking_count",
+                  "fields": [
+                    {
+                      "name": "sum(blocking_failures)",
+                      "expression": "SUM(`blocking_failures`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Blocking Failures"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(blocking_failures)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "total_non_passing",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "failures_detail",
+                  "fields": [
+                    {
+                      "name": "count(check_name)",
+                      "expression": "COUNT(`check_name`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Total Non-Passing Checks"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(check_name)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "failures_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "failures_detail",
+                  "fields": [
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "check_name",
+                      "expression": "`check_name`"
+                    },
+                    {
+                      "name": "check_category",
+                      "expression": "`check_category`"
+                    },
+                    {
+                      "name": "failed_rows",
+                      "expression": "`failed_rows`"
+                    },
+                    {
+                      "name": "total_rows",
+                      "expression": "`total_rows`"
+                    },
+                    {
+                      "name": "failed_pct",
+                      "expression": "`failed_pct`"
+                    },
+                    {
+                      "name": "threshold_pct",
+                      "expression": "`threshold_pct`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "blocking",
+                      "expression": "`blocking`"
+                    },
+                    {
+                      "name": "silver_action",
+                      "expression": "`silver_action`"
+                    },
+                    {
+                      "name": "rule_description",
+                      "expression": "`rule_description`"
+                    },
+                    {
+                      "name": "severity",
+                      "expression": "`severity`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Failures & Warnings Detail"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "layer"
+                  },
+                  {
+                    "fieldName": "table_name"
+                  },
+                  {
+                    "fieldName": "check_name"
+                  },
+                  {
+                    "fieldName": "check_category"
+                  },
+                  {
+                    "fieldName": "failed_rows"
+                  },
+                  {
+                    "fieldName": "total_rows"
+                  },
+                  {
+                    "fieldName": "failed_pct"
+                  },
+                  {
+                    "fieldName": "threshold_pct"
+                  },
+                  {
+                    "fieldName": "status"
+                  },
+                  {
+                    "fieldName": "blocking"
+                  },
+                  {
+                    "fieldName": "silver_action"
+                  },
+                  {
+                    "fieldName": "rule_description"
+                  },
+                  {
+                    "fieldName": "severity"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 12,
+            "height": 10
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "categories_rules",
+      "displayName": "Categories & Rules",
+      "layout": [
+        {
+          "widget": {
+            "name": "categories_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Check Categories & Rules\n",
+                "Breakdown of checks by category and rationale, plus the full rules catalogue."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "by_category",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "latest_results",
+                  "fields": [
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "check_category",
+                      "expression": "`check_category`"
+                    },
+                    {
+                      "name": "count(check_name)",
+                      "expression": "COUNT(`check_name`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Checks by Category"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "check_category",
+                  "displayName": "check_category",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "count(check_name)",
+                  "displayName": "check_name",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "status",
+                  "displayName": "status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "rationale_pie",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rationale_tags",
+                  "fields": [
+                    {
+                      "name": "count(rationale_tag)",
+                      "expression": "COUNT(`rationale_tag`)"
+                    },
+                    {
+                      "name": "rationale_tag",
+                      "expression": "`rationale_tag`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Rationale Tag Breakdown"
+              },
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "count(rationale_tag)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "rationale_tag"
+                },
+                "color": {
+                  "fieldName": "rationale_tag",
+                  "displayName": "rationale_tag",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "rules_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_rules",
+                  "fields": [
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "check_name",
+                      "expression": "`check_name`"
+                    },
+                    {
+                      "name": "check_category",
+                      "expression": "`check_category`"
+                    },
+                    {
+                      "name": "threshold_pct",
+                      "expression": "`threshold_pct`"
+                    },
+                    {
+                      "name": "rule_description",
+                      "expression": "`rule_description`"
+                    },
+                    {
+                      "name": "rationale",
+                      "expression": "`rationale`"
+                    },
+                    {
+                      "name": "silver_action",
+                      "expression": "`silver_action`"
+                    },
+                    {
+                      "name": "blocking",
+                      "expression": "`blocking`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Rules Catalogue"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "layer"
+                  },
+                  {
+                    "fieldName": "table_name"
+                  },
+                  {
+                    "fieldName": "check_name"
+                  },
+                  {
+                    "fieldName": "check_category"
+                  },
+                  {
+                    "fieldName": "threshold_pct"
+                  },
+                  {
+                    "fieldName": "rule_description"
+                  },
+                  {
+                    "fieldName": "rationale"
+                  },
+                  {
+                    "fieldName": "silver_action"
+                  },
+                  {
+                    "fieldName": "blocking"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 12,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "run_history",
+      "displayName": "Run History",
+      "layout": [
+        {
+          "widget": {
+            "name": "history_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Run History\n",
+                "Data quality run history and trends across pipeline runs."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "failed_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "run_history",
+                  "fields": [
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "run_ts",
+                      "expression": "`run_ts`"
+                    },
+                    {
+                      "name": "sum(checks_failed)",
+                      "expression": "SUM(`checks_failed`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Failed Checks Over Time"
+              },
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "run_ts",
+                  "displayName": "run_ts",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(checks_failed)",
+                  "displayName": "checks_failed",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "layer",
+                  "displayName": "layer",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "passed_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "run_history",
+                  "fields": [
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "run_ts",
+                      "expression": "`run_ts`"
+                    },
+                    {
+                      "name": "sum(checks_passed)",
+                      "expression": "SUM(`checks_passed`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Passed Checks Over Time"
+              },
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "run_ts",
+                  "displayName": "run_ts",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(checks_passed)",
+                  "displayName": "checks_passed",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "layer",
+                  "displayName": "layer",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "runs_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "run_history",
+                  "fields": [
+                    {
+                      "name": "run_ts",
+                      "expression": "`run_ts`"
+                    },
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "tables_checked",
+                      "expression": "`tables_checked`"
+                    },
+                    {
+                      "name": "checks_run",
+                      "expression": "`checks_run`"
+                    },
+                    {
+                      "name": "checks_passed",
+                      "expression": "`checks_passed`"
+                    },
+                    {
+                      "name": "checks_warned",
+                      "expression": "`checks_warned`"
+                    },
+                    {
+                      "name": "checks_failed",
+                      "expression": "`checks_failed`"
+                    },
+                    {
+                      "name": "overall_status",
+                      "expression": "`overall_status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Recent Runs"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "run_ts"
+                  },
+                  {
+                    "fieldName": "layer"
+                  },
+                  {
+                    "fieldName": "tables_checked"
+                  },
+                  {
+                    "fieldName": "checks_run"
+                  },
+                  {
+                    "fieldName": "checks_passed"
+                  },
+                  {
+                    "fieldName": "checks_warned"
+                  },
+                  {
+                    "fieldName": "checks_failed"
+                  },
+                  {
+                    "fieldName": "overall_status"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 12,
+            "height": 4
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "gold_layer",
+      "displayName": "Gold Layer DQ",
+      "layout": [
+        {
+          "widget": {
+            "name": "gold_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Gold Layer — Data Quality\n",
+                "Dimension grain checks, fact table reconciliation with Silver, and at-rest referential integrity — the checks that only exist because Gold derives its own keys."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "gold_checks_run",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "gold_run_summary",
+                  "fields": [
+                    {
+                      "name": "sum(checks_run)",
+                      "expression": "SUM(`checks_run`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Gold Checks Run"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(checks_run)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "gold_checks_passed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "gold_run_summary",
+                  "fields": [
+                    {
+                      "name": "sum(checks_passed)",
+                      "expression": "SUM(`checks_passed`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Gold Checks Passed"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(checks_passed)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "gold_checks_warned",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "gold_run_summary",
+                  "fields": [
+                    {
+                      "name": "sum(checks_warned)",
+                      "expression": "SUM(`checks_warned`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Gold Checks Warned"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(checks_warned)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "gold_checks_failed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "gold_run_summary",
+                  "fields": [
+                    {
+                      "name": "sum(checks_failed)",
+                      "expression": "SUM(`checks_failed`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Gold Checks Failed"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(checks_failed)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "gold_status_by_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "gold_results",
+                  "fields": [
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "count(check_name)",
+                      "expression": "COUNT(`check_name`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Gold Check Status by Table"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "table_name",
+                  "displayName": "table_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "count(check_name)",
+                  "displayName": "check_name",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "status",
+                  "displayName": "status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "gold_at_rest_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "gold_at_rest",
+                  "fields": [
+                    {
+                      "name": "check_name",
+                      "expression": "`check_name`"
+                    },
+                    {
+                      "name": "failed_rows",
+                      "expression": "`failed_rows`"
+                    },
+                    {
+                      "name": "total_rows",
+                      "expression": "`total_rows`"
+                    },
+                    {
+                      "name": "failed_pct",
+                      "expression": "`failed_pct`"
+                    },
+                    {
+                      "name": "threshold_pct",
+                      "expression": "`threshold_pct`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Gold At-Rest Integrity"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "check_name"
+                  },
+                  {
+                    "fieldName": "failed_rows"
+                  },
+                  {
+                    "fieldName": "total_rows"
+                  },
+                  {
+                    "fieldName": "failed_pct"
+                  },
+                  {
+                    "fieldName": "threshold_pct"
+                  },
+                  {
+                    "fieldName": "status"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "gold_all_results",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "gold_results",
+                  "fields": [
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "check_category",
+                      "expression": "`check_category`"
+                    },
+                    {
+                      "name": "check_name",
+                      "expression": "`check_name`"
+                    },
+                    {
+                      "name": "failed_rows",
+                      "expression": "`failed_rows`"
+                    },
+                    {
+                      "name": "total_rows",
+                      "expression": "`total_rows`"
+                    },
+                    {
+                      "name": "failed_pct",
+                      "expression": "`failed_pct`"
+                    },
+                    {
+                      "name": "threshold_pct",
+                      "expression": "`threshold_pct`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "All Gold Check Results"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "table_name"
+                  },
+                  {
+                    "fieldName": "check_category"
+                  },
+                  {
+                    "fieldName": "check_name"
+                  },
+                  {
+                    "fieldName": "failed_rows"
+                  },
+                  {
+                    "fieldName": "total_rows"
+                  },
+                  {
+                    "fieldName": "failed_pct"
+                  },
+                  {
+                    "fieldName": "threshold_pct"
+                  },
+                  {
+                    "fieldName": "status"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 12,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}
