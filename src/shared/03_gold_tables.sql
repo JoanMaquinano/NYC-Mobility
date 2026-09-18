@@ -19,7 +19,7 @@ TBLPROPERTIES (
 CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_gold.dim_taxi_zone (
     location_id INT NOT NULL,
     borough STRING,
-    zone STRING,
+    zone_name STRING,
     service_zone STRING
 )
 USING DELTA

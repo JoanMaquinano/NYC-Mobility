@@ -33,6 +33,50 @@ SET VAR v_run_ts = current_timestamp();
 SELECT v_run_id AS run_id, v_run_ts AS run_ts;
 
 
+-- list of check names
+CREATE OR REPLACE TEMPORARY VIEW vw_bronze_blocking_checks AS
+SELECT explode(array(
+        'pickup_datetime_not_null',
+        'dropoff_datetime_not_null',
+        'pickup_zone_not_null',
+        'dropoff_zone_not_null',
+        'date_not_null',
+        'date_parses',
+        'location_id_not_null',
+        'table_not_empty',
+        'location_id_unique',
+        'one_row_per_hour',
+        'source_file_recorded',
+        'trip_distance_not_negative',
+        'passenger_count_not_negative',
+        'pickup_zone_exists_in_lookup',
+        'dropoff_zone_exists_in_lookup',
+        'row_count_matches_source',
+        'every_landed_file_is_loaded',
+        'no_nulls_added_vendor_id',
+        'no_nulls_added_pu_location_id',
+        'no_nulls_added_do_location_id',
+        'no_nulls_added_ratecode_id',
+        'no_nulls_added_payment_type',
+        'no_nulls_added_trip_type',
+        'no_nulls_added_passenger_count',
+        'no_nulls_added_store_and_fwd_flag',
+        'no_nulls_added_pickup_datetime',
+        'no_nulls_added_dropoff_datetime',
+        'no_nulls_added_trip_distance',
+        'no_nulls_added_fare_amount',
+        'no_nulls_added_total_amount',
+        'no_nulls_added_extra',
+        'no_nulls_added_mta_tax',
+        'no_nulls_added_tip_amount',
+        'no_nulls_added_tolls_amount',
+        'no_nulls_added_improvement_surcharge',
+        'no_nulls_added_congestion_surcharge'
+    )) AS check_name;
+
+
+
+
 -- Each run gets a new UUID, so previous rows from the same run will not exist.
 -- For now, dq_results is append-only and each execution is kept in the history.
 -- If v_run_id is replaced with a stable job run ID, the DELETE can support reruns safely.
@@ -851,8 +895,14 @@ SELECT
     SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END)             AS checks_passed,
     SUM(CASE WHEN status = 'WARN' THEN 1 ELSE 0 END)             AS checks_warned,
     SUM(CASE WHEN status = 'FAIL' THEN 1 ELSE 0 END)             AS checks_failed,
-    CASE WHEN SUM(CASE WHEN status = 'FAIL' THEN 1 ELSE 0 END) > 0 THEN 'FAIL'
-         WHEN SUM(CASE WHEN status = 'WARN' THEN 1 ELSE 0 END) > 0 THEN 'WARN'
+    -- FAIL means THIS LAYER IS NOT USABLE -- a blocking check failed, and the
+    -- gate below raises on the same condition. A non-blocking failure is a
+    -- recorded defect, not a reason to stop, so it lands on WARN: saying FAIL
+    -- for both made the column disagree with the gate that read the same rows.
+    CASE WHEN SUM(CASE WHEN status = 'FAIL'
+                        AND check_name IN (SELECT check_name FROM vw_bronze_blocking_checks)
+                       THEN 1 ELSE 0 END) > 0                    THEN 'FAIL'
+         WHEN SUM(CASE WHEN status <> 'PASS' THEN 1 ELSE 0 END) > 0 THEN 'WARN'
          ELSE 'PASS' END                                         AS overall_status,
     current_timestamp()                                          AS finished_at
 FROM nyc_quality.dq_results
@@ -899,37 +949,9 @@ SET VAR v_blocking_failures = (
     SELECT COUNT(*)
     FROM   nyc_quality.dq_results
     WHERE  run_id = v_run_id AND status = 'FAIL'
-      AND  check_name IN (
-        -- the grain: a row that cannot be placed in time or space
-        'pickup_datetime_not_null','dropoff_datetime_not_null',
-        'pickup_zone_not_null','dropoff_zone_not_null',
-        'date_not_null','date_parses',
-        'location_id_not_null',
-        -- the load produced nothing at all
-        'table_not_empty',
-        -- keys: a duplicate fans out a join and inflates every total
-        'location_id_unique','one_row_per_hour',
-        -- lineage: without it nothing can be traced
-        'source_file_recorded',
-        -- physically impossible values that still cast cleanly
-        'trip_distance_not_negative','passenger_count_not_negative',
-        -- referential integrity: trips that can never resolve to a zone
-        'pickup_zone_exists_in_lookup','dropoff_zone_exists_in_lookup',
-        -- our own pipeline damaged the data on the way in
-        'row_count_matches_source','every_landed_file_is_loaded',
-        'no_nulls_added_vendor_id','no_nulls_added_pu_location_id',
-        'no_nulls_added_do_location_id','no_nulls_added_ratecode_id',
-        'no_nulls_added_payment_type','no_nulls_added_trip_type',
-        'no_nulls_added_passenger_count','no_nulls_added_store_and_fwd_flag',
-        'no_nulls_added_pickup_datetime','no_nulls_added_dropoff_datetime',
-        'no_nulls_added_trip_distance','no_nulls_added_fare_amount',
-        'no_nulls_added_total_amount','no_nulls_added_extra',
-        'no_nulls_added_mta_tax','no_nulls_added_tip_amount',
-        'no_nulls_added_tolls_amount','no_nulls_added_improvement_surcharge',
-        'no_nulls_added_congestion_surcharge'
-      )
+      AND  check_name IN (SELECT check_name FROM vw_bronze_blocking_checks)
 );
-
+ 
 SET VAR v_total_failures = (
     SELECT COUNT(*) FROM nyc_quality.dq_results
     WHERE run_id = v_run_id AND status = 'FAIL'
@@ -960,28 +982,7 @@ SET VAR v_total_failures = (
 -- never produces.
 
 
-WITH blocking(check_name) AS (
-    SELECT explode(array(
-        'pickup_datetime_not_null','dropoff_datetime_not_null',
-        'pickup_zone_not_null','dropoff_zone_not_null',
-        'date_not_null','date_parses','location_id_not_null',
-        'table_not_empty','location_id_unique','one_row_per_hour',
-        'source_file_recorded','trip_distance_not_negative',
-        'passenger_count_not_negative',
-        'pickup_zone_exists_in_lookup','dropoff_zone_exists_in_lookup',
-        'row_count_matches_source','every_landed_file_is_loaded',
-        'no_nulls_added_vendor_id','no_nulls_added_pu_location_id',
-        'no_nulls_added_do_location_id','no_nulls_added_ratecode_id',
-        'no_nulls_added_payment_type','no_nulls_added_trip_type',
-        'no_nulls_added_passenger_count','no_nulls_added_store_and_fwd_flag',
-        'no_nulls_added_pickup_datetime','no_nulls_added_dropoff_datetime',
-        'no_nulls_added_trip_distance','no_nulls_added_fare_amount',
-        'no_nulls_added_total_amount','no_nulls_added_extra',
-        'no_nulls_added_mta_tax','no_nulls_added_tip_amount',
-        'no_nulls_added_tolls_amount','no_nulls_added_improvement_surcharge',
-        'no_nulls_added_congestion_surcharge'
-    ))
-)
+WITH blocking AS (SELECT check_name FROM vw_bronze_blocking_checks)
 SELECT b.check_name AS blocking_name_never_produced
 FROM   blocking b
 LEFT   JOIN (SELECT DISTINCT check_name
@@ -989,6 +990,7 @@ LEFT   JOIN (SELECT DISTINCT check_name
              WHERE  run_id = v_run_id) r
        ON b.check_name = r.check_name
 WHERE  r.check_name IS NULL;
+
 
 SELECT v_blocking_failures AS blocking_failures,
        v_total_failures    AS total_failures,
