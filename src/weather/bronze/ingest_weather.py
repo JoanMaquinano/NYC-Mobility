@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # STEP 1: API to monthly CSV files. Import this Python notebook and run all cells.
 # Packages (openmeteo-requests, requests-cache, retry-requests) are pre-installed in the job environment.
 
