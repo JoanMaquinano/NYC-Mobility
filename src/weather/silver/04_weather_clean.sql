@@ -24,7 +24,12 @@ USING (
     wind_speed_10m,
     wind_gusts_10m,
     month,
-    ingestion_timestamp
+    ingestion_timestamp,
+    source_file_month,
+    CAST(ingestion_timestamp AS DATE) AS ingestion_date,
+    CAST(NULL AS STRING) AS latitude,
+    CAST(NULL AS STRING) AS longitude,
+    CAST(NULL AS STRING) AS source_series
   FROM (
   SELECT
     -- Core attributes with rounding to 2 decimal places
@@ -40,6 +45,7 @@ USING (
     ROUND(CAST(wind_gusts_10m AS DOUBLE), 2) AS wind_gusts_10m,
     month,
     ingestion_timestamp,
+    source_file_month,
     
     -- Weather code description (Open-Meteo WMO codes)
     CASE CAST(TRY_CAST(weather_code AS DOUBLE) AS INT)
@@ -111,7 +117,7 @@ FROM `nyc-mobility`.nyc_silver.weather_clean;
 
 -- 3. Preview cleaned data with weather descriptions
 SELECT date, temperature_2m, apparent_temperature, rain, 
-       weather_code, weather_description, wind_speed_10m, cloud_cover
+       weather_code, wind_speed_10m, cloud_cover
 FROM `nyc-mobility`.nyc_silver.weather_clean
 ORDER BY date
 LIMIT 10;

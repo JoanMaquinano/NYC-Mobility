@@ -2,71 +2,110 @@
 
 ## Overview
 
-This document defines repository standards, development workflow, code quality tooling, pull request processes, and deployment practices used by the NYC Mobility project.
+This document defines repository standards, development workflow, code quality practices, pull request processes, and deployment conventions used by the NYC Mobility project.
 
 ---
 
-# Repository Architecture
+# Architecture Standards
 
-The project follows a source-oriented repository structure.
+## Repository Structure
 
-```text
-src/
-├── green_taxi/
-├── weather/
-├── taxi_zones/
-└── traffic_advisories/
-```
-
-Each source domain owns its Bronze, Silver, and Gold assets.
+The project uses a **source-oriented repository structure**.
 
 ```text
 src/
 ├── green_taxi/
 │   ├── bronze/
 │   ├── silver/
-│   └── gold/
+│   ├── gold/
+│   └── dq/
 ├── weather/
 │   ├── bronze/
 │   ├── silver/
-│   └── gold/
-├── taxi_zones/
-│   ├── bronze/
-│   ├── silver/
-│   └── gold/
-└── traffic_advisories/
+│   ├── gold/
+│   └── dq/
+└── taxi_zones/
     ├── bronze/
     ├── silver/
-    └── gold/
+    ├── gold/
+    └── dq/
 ```
+
+Each source domain owns its:
+
+- Ingestion logic
+- Transformation logic
+- Data quality checks
+- Business logic
+- Documentation
 
 ### Why Source-Oriented?
 
-Work ownership is assigned by source domain.
+Ownership is assigned by source domain:
 
 ```text
 Green Taxi
 Weather
 Taxi Zones
-Traffic Advisories
 ```
 
-This structure allows contributors to find ingestion, transformation, profiling, validation, and gold-layer assets for a source system in a single location.
+Benefits:
 
-For the current project size and team structure, source-oriented organization provides simpler navigation and stronger ownership boundaries than a layer-oriented approach.
+- Simpler navigation
+- Clear ownership boundaries
+- Easier development and troubleshooting
+- Better scalability for multi-source projects
 
 ---
 
-# Shared Folder Standards
+## Databricks Architecture
+
+The Databricks catalog follows a **layer-oriented Medallion Architecture**.
+
+```text
+nyc_bronze
+│
+├── green_taxi
+├── taxi_zones
+└── weather
+
+nyc_silver
+│
+├── green_taxi_clean
+├── taxi_zones_clean
+└── weather_clean
+
+nyc_gold
+│
+├── gold_trip_analytics
+├── gold_weather_impact
+├── gold_zone_performance
+└── gold_daily_kpis
+```
+
+Benefits:
+
+- Clear separation of data maturity levels
+- Easier governance
+- Improved data lineage
+- Consistent Medallion implementation
+
+---
+
+# Database Object Standards
+
+## Shared Folder Structure
 
 ```text
 src/shared/
-├── 00_schema_setup.sql
+├── 00_catalog_setup.sql
 ├── 01_bronze_tables.sql
 ├── 02_silver_tables.sql
 ├── 03_gold_tables.sql
 └── 04_monitoring_tables.sql
 ```
+
+---
 
 ## Shared Folder Responsibilities
 
@@ -81,62 +120,207 @@ CREATE TABLE
 CREATE VIEW
 ```
 
-### Examples
+Examples:
 
 ```text
-✅ CREATE TABLE nyc_bronze.taxi_zones
-✅ CREATE TABLE nyc_silver.taxi_zones_clean
-✅ CREATE TABLE nyc_gold.dim_taxi_zone
+✅ CREATE TABLE nyc_bronze.green_taxi
+✅ CREATE TABLE nyc_bronze.weather
+✅ CREATE TABLE nyc_silver.weather_clean
+✅ CREATE TABLE nyc_gold.gold_trip_analytics
 ```
 
 ---
 
 ## Domain Folder Responsibilities
 
-Domain folders contain operational pipeline logic.
+Domain folders contain operational processing logic.
 
 Examples:
 
 ```text
 Data ingestion
 Data transformation
+MERGE logic
+Validation queries
 Profiling queries
-Quality checks
 Monitoring queries
 Business logic
 ```
 
-### Examples
+Allowed:
 
 ```text
 ✅ INSERT INTO
-✅ INSERT OVERWRITE
 ✅ MERGE INTO
+✅ Transformation logic
 ✅ Validation queries
-✅ Profiling notebooks
+✅ Data quality checks
 ```
 
-### Not Allowed
+Not Allowed:
 
 ```text
-❌ CREATE TABLE statements inside domain folders
-❌ CREATE SCHEMA statements inside domain folders
+❌ CREATE TABLE statements
+❌ CREATE SCHEMA statements
+❌ CREATE CATALOG statements
 ```
 
 Example:
 
 ```text
 ✅ src/shared/01_bronze_tables.sql
-    CREATE TABLE taxi_zones
+    CREATE TABLE weather
 
-✅ src/taxi_zones/bronze/
-    INSERT INTO taxi_zones
+✅ src/weather/bronze/
+    MERGE INTO weather
 
-❌ src/taxi_zones/bronze/
-    CREATE TABLE taxi_zones
+❌ src/weather/bronze/
+    CREATE TABLE weather
 ```
 
-This separation ensures a single source of truth for schema definitions and simplifies maintenance when schema changes occur.
+---
+
+# Separation of Concerns
+
+## Table Creation
+
+Database object creation must be isolated from recurring pipeline execution.
+
+Examples:
+
+```text
+CREATE TABLE
+CREATE VIEW
+CREATE SCHEMA
+```
+
+belong in:
+
+```text
+src/shared/
+```
+
+---
+
+## Ingestion Scripts
+
+Recurring ingestion scripts should contain only:
+
+```text
+INSERT
+MERGE
+Transformations
+Validation Logic
+```
+
+Benefits:
+
+- Cleaner deployments
+- Easier schema management
+- Reduced merge conflicts
+- Improved maintainability
+- Better idempotency
+
+---
+
+# Data Loading Standards
+
+## Idempotent Processing
+
+Recurring jobs must be safe to rerun.
+
+Requirements:
+
+```text
+Use MERGE where duplicate loads are possible.
+Prevent duplicate business records.
+Support recovery from failed executions.
+```
+
+Examples:
+
+```text
+✅ Weather ingestion uses MERGE ON date
+
+✅ Taxi zone ingestion uses MERGE ON location_id
+
+❌ Repeated INSERT INTO reference tables
+```
+
+---
+
+## Weather Loading Standard
+
+Weather data is loaded through two separate processes.
+
+Workflow:
+
+```text
+06_ingest_weather_api.ipynb
+          ↓
+      API → CSV
+          ↓
+07_load_weather_bronze.ipynb
+          ↓
+      CSV → bronze_weather
+```
+
+Benefits:
+
+- Clear responsibility separation
+- Easier troubleshooting
+- Independent reruns
+
+---
+
+## Catalog Standards
+
+Use:
+
+```text
+nyc-mobility
+```
+
+Examples:
+
+```sql
+`nyc-mobility`.nyc_bronze.weather
+`nyc-mobility`.nyc_silver.weather_clean
+`nyc-mobility`.nyc_gold.gold_trip_analytics
+```
+
+Avoid:
+
+```text
+workspace.default...
+```
+
+Reason:
+
+```text
+Workspace paths are user-specific and not portable across environments.
+```
+
+---
+
+# Workflow Standards
+
+## Pipeline Workflow
+
+```text
+Preload_Checks
+├── Green_Taxi_Bronze
+├── Taxi_Zones_Bronze
+├── Weather_API_Ingest
+│   └── Weather_Bronze_Load
+└── Bronze_QC
+```
+
+Requirements:
+
+- Dependencies must be explicit.
+- Validation should run after ingestion.
+- Failed upstream tasks should block downstream execution.
 
 ---
 
@@ -147,28 +331,47 @@ All changes must be submitted through Pull Requests.
 ```text
 Feature Branch
     ↓
-Pull Request Opened
+Pull Request
     ↓
-Auto Reviewer Assignment
+Automated Checks
     ↓
-Repository Validation Checks
+Reviewer Assignment
     ↓
-Reviewer Approval
+Approval
     ↓
 Merge to Main
 ```
 
 ---
 
-# GitHub Actions
+## Pull Request Reviews
 
-The repository uses GitHub Actions to automate validation and review processes.
+Requirements:
+
+```text
+✅ Pull Request required
+✅ Reviewer assigned
+✅ Validation checks pass
+✅ Approval received before merge
+```
+
+Reviewers should verify:
+
+- Business logic correctness
+- Catalog standards
+- File path standards
+- Documentation updates
+- DQ compliance
+
+---
+
+# GitHub Actions
 
 ## auto-reviewer.yml
 
 Purpose:
 
-Automatically assigns a reviewer when a Pull Request is opened.
+Automatically assigns reviewers when Pull Requests are opened.
 
 Workflow:
 
@@ -182,10 +385,9 @@ Reviewer Assigned
 
 Benefits:
 
-- Ensures every PR receives review ownership
-- Removes manual reviewer assignment
-- Creates a consistent review process
-- Prevents PRs from being overlooked
+- Prevents unreviewed PRs
+- Ensures ownership
+- Supports consistent review practices
 
 ---
 
@@ -193,37 +395,27 @@ Benefits:
 
 Purpose:
 
-Validates repository structure and standards before code can be merged.
-
-Workflow:
-
-```text
-PR Opened
-    ↓
-pr-checks.yml
-    ↓
-Repository Validation
-```
+Validates repository standards before merge.
 
 Checks may include:
 
-- Required documentation files
-- Expected folder structure
-- File existence validation
+- Folder structure validation
+- Documentation validation
 - Workflow validation
-- Linting and formatting checks
+- Linting checks
+- Required file checks
 
 Benefits:
 
-- Prevents accidental repository drift
-- Detects issues before review
-- Maintains project standards
+- Detects issues early
+- Prevents repository drift
+- Maintains consistency
 
 ---
 
-## Branch Protection
+# Branch Protection
 
-The main branch is protected through repository rules.
+The main branch is protected.
 
 Requirements:
 
@@ -232,151 +424,75 @@ Requirements:
 ✅ Status Checks Required
 ✅ Reviewer Approval Required
 ✅ No Force Pushes
-✅ Branch Deletion Blocked
+✅ Protected Main Branch
 ```
 
 Benefits:
 
-- Improves code quality
-- Prevents accidental changes
-- Maintains auditability
-- Enforces review standards
+- Improved code quality
+- Better auditability
+- Safer deployments
 
 ---
 
 # Code Quality Standards
 
-## SQLFluff
-
-Purpose:
-
-SQL formatting and linting.
-
-Benefits:
-
-- Consistent SQL style
-- Easier code reviews
-- Improved readability
-- Detection of common SQL issues
-
-Standards:
-
-```text
-Uppercase keywords
-Consistent indentation
-Explicit aliases
-Databricks SQL dialect
-```
-
----
-
-## Black
-
-Purpose:
-
-Python formatting.
-
-Benefits:
-
-- Consistent style
-- Reduced formatting discussions
-- Improved code readability
-
----
-
-## isort
-
-Purpose:
-
-Python import management.
-
-Benefits:
-
-- Consistent import ordering
-- Reduced duplicate imports
-- Improved dependency visibility
-
----
-
-## Flake8
-
-Purpose:
-
-Python static analysis.
-
-Benefits:
-
-- Detect undefined variables
-- Detect unused imports
-- Detect unreachable code
-- Improve code quality
-
----
-
-## nbqa
-
-Purpose:
-
-Apply Python quality tools to notebook code.
-
-Benefits:
-
-- Consistent notebook development standards
-- Linting support for notebooks
-- Improved notebook maintainability
-
----
-
-## nbstripout
-
-Purpose:
-
-Remove notebook outputs before commits.
-
-Benefits:
-
-- Smaller repository size
-- Cleaner pull requests
-- Easier notebook reviews
-- Better Git history
-
----
-
-# Quality Expectations
-
-## SQL Files
+## SQL Standards
 
 Requirements:
 
 ```text
-Pass SQLFluff validation
-Follow Databricks SQL standards
-Use consistent formatting
+Uppercase SQL keywords
+Consistent formatting
+Readable aliases
+Databricks SQL compatibility
+```
+
+Recommended Tool:
+
+```text
+SQLFluff
 ```
 
 ---
 
-## Python Files
+## Python Standards
 
 Requirements:
 
 ```text
-Pass Black formatting
-Pass Flake8 checks
-Pass isort validation
+Consistent formatting
+Meaningful variable names
+Reusable functions
+Readable code
+```
+
+Recommended Tools:
+
+```text
+Black
+Flake8
+isort
 ```
 
 ---
 
-## Notebooks
+## Notebook Standards
 
 Requirements:
 
 ```text
 Outputs removed before commit
-No unnecessary metadata
+Minimal metadata
 Readable code cells
-Version-control friendly format
+Version-control-friendly structure
+```
+
+Recommended Tools:
+
+```text
+nbqa
+nbstripout
 ```
 
 ---
@@ -388,19 +504,29 @@ Developer
     ↓
 Create Feature Branch
     ↓
-Develop & Test Changes
+Develop & Test
     ↓
 Open Pull Request
     ↓
-auto-reviewer.yml assigns reviewer
-    ↓
-pr-checks.yml validates repository
+GitHub Validation Checks
     ↓
 Reviewer Approval
     ↓
 Merge to Main
     ↓
-Production Deployment
+Deploy / Execute Workflow
 ```
 
-This workflow ensures all repository changes follow consistent engineering, documentation, testing, and review standards.
+---
+
+# Current Project Standards
+
+- Repository uses a source-oriented structure.
+- Databricks uses a layer-oriented Medallion structure.
+- CREATE TABLE statements are stored separately from ingestion processes.
+- Weather ingestion is split into API extraction and Bronze loading.
+- Weather and taxi zone pipelines use MERGE for idempotency.
+- Shared catalog standard is `nyc-mobility`.
+- Pull Requests are required for all repository changes.
+- GitHub Actions automate reviewer assignment and repository validation.
+- Data quality validation must execute before publishing Gold-layer outputs.

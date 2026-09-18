@@ -2,284 +2,260 @@
 
 ## 1. Overview
 
-The NYC Mobility data model integrates multiple public datasets into a trusted, analytics-ready dataset using a Medallion Architecture approach.
+The NYC Mobility project integrates NYC Green Taxi trip records, weather data, and taxi zone reference data into a trusted, analytics-ready platform using a Medallion Architecture approach.
 
-Data Sources:
+### Data Sources
 
 - NYC Green Taxi Trip Records
-- Open-Meteo Historical Weather API
+- Open-Meteo Historical Forecast API
 - NYC Taxi Zone Lookup
-- NYC DOT Traffic Advisories (Bonus)
 
-The model supports analysis of mobility demand, trip behavior, weather conditions, and traffic disruptions across New York City.
+### Business Objectives
+
+The model supports:
+
+- Mobility demand analysis
+- Trip behavior analysis
+- Geographic performance reporting
+- Weather impact analysis
+- Executive KPI reporting
 
 ---
 
 ## 2. Modeling Approach
 
-The project follows a dimensional modeling approach.
-
-Data progresses through:
+The project follows a Medallion Architecture design.
 
 ```text
-Sources
-    ↓
-Bronze (Raw)
-    ↓
+Source Systems
+      ↓
+Bronze (Raw Data)
+      ↓
 Silver (Cleaned & Standardized)
-    ↓
-Gold (Integrated Analytics Layer)
+      ↓
+Gold (Business Analytics)
 ```
 
-The Gold layer consists of:
+### Bronze Layer
 
-- Fact tables for measurable business events
-- Dimension tables for descriptive business attributes
+Stores raw source data with minimal transformation.
 
-The model uses a snowflake-inspired design where shared reference data is maintained separately and linked through keys.
+Tables:
+
+- bronze_green_taxi
+- bronze_taxi_zones
+- bronze_weather
+
+### Silver Layer
+
+Stores standardized and validated business data.
+
+Tables:
+
+- silver_green_taxi
+- silver_taxi_zones
+- silver_weather
+
+### Gold Layer
+
+Stores aggregated analytics-ready datasets aligned to business reporting requirements.
+
+Tables:
+
+- gold_trip_analytics
+- gold_weather_impact
+- gold_zone_performance
+- gold_daily_kpis
 
 ---
 
-## 3. ERD
-
-### ERD Diagram
-
-> Insert ERD image here.
+## 3. High-Level Data Flow
 
 ```text
-[ERD IMAGE PLACEHOLDER]
+bronze_green_taxi
+        │
+        ▼
+silver_green_taxi
+        │
+        ├──────────────┐
+        │              │
+        ▼              ▼
+
+gold_trip_analytics
+gold_zone_performance
+
+silver_weather
+        │
+        ▼
+
+gold_weather_impact
+        │
+        ▼
+
+gold_daily_kpis
+
+silver_taxi_zones
+        │
+        ├──────────────┐
+        │              │
+        ▼              ▼
+
+gold_trip_analytics
+gold_zone_performance
 ```
-
-### Relationship Diagram
-
-```text
-                    dim_date
-                        |
-                        |
-                        ▼
-
-dim_taxi_zone ---> fact_green_taxi_trip <--- dim_weather
-       ▲                     |
-       |                     |
-       |                     ▼
-
-       +------ fact_traffic_advisory (optional)
-```
-
-> Update diagram after final implementation.
 
 ---
 
-## 4. Fact Tables
+## 4. Conceptual Model
 
-### fact_green_taxi_trip
+### Taxi Trips
 
-Purpose:
-
-Stores taxi trip transactions and mobility activity.
-
-Business Event:
+The taxi trip dataset is the primary business event within the platform.
 
 ```text
-A completed Green Taxi trip.
+One completed taxi trip
+        =
+One business event
 ```
 
-Measures may include:
+Taxi trips provide:
 
-- Trip count
-- Trip distance
-- Fare amount
-- Tip amount
-- Total amount
-- Trip duration
+- Demand metrics
+- Revenue metrics
+- Distance metrics
+- Passenger metrics
 
 ---
 
-### fact_traffic_advisory *(Optional)*
+### Weather Data
 
-Purpose:
-
-Stores traffic disruption events for mobility context.
-
-Business Event:
+Weather data provides contextual enrichment for mobility analysis.
 
 ```text
-A published traffic advisory.
+Many trips
+      →
+One weather date
 ```
 
-Potential measures:
+Weather is:
 
-- Advisory count
-- Number of affected locations
-- Duration of advisory
+- City-wide
+- Date-based
+- Shared by all zones for a given date
 
 ---
 
-## 5. Dimension Tables
+### Taxi Zones
 
-### dim_taxi_zone
+Taxi zones provide the geographic dimension used throughout reporting.
 
-Purpose:
-
-Provides geographic reference information.
-
-Examples:
-
-- Zone
-- Borough
+```text
+LocationID
+      →
+Zone
+      →
+Borough
+```
 
 Used for:
 
 - Pickup analysis
 - Dropoff analysis
-- Geographic reporting
+- Zone performance reporting
 
 ---
 
-### dim_weather
+## 5. Table Grains
 
-Purpose:
+### Bronze Layer
 
-Provides weather observations used for mobility enrichment.
-
-Examples:
-
-- Temperature
-- Precipitation
-- Wind speed
-- Weather code
-
-Used for:
-
-- Weather impact analysis
-- Trend analysis
-
----
-
-### dim_date
-
-Purpose:
-
-Provides calendar attributes for reporting.
-
-Examples:
-
-- Day
-- Week
-- Month
-- Quarter
-- Year
-
-Used for:
-
-- Time-series reporting
-- Aggregation
-
----
-
-### dim_time *(Optional)*
-
-Purpose:
-
-Provides hour-level reporting attributes.
-
-Examples:
-
-- Hour of day
-- Time period
-
-Used for:
-
-- Peak-hour analysis
-- Mobility activity analysis
-
----
-
-## 6. Table Grains
-
-### fact_green_taxi_trip
-
-Grain:
+#### bronze_green_taxi
 
 ```text
 One row per taxi trip
 ```
 
----
-
-### fact_traffic_advisory
-
-Proposed Grain:
+#### bronze_taxi_zones
 
 ```text
-One row per traffic advisory
+One row per taxi zone
 ```
 
-To be confirmed.
-
----
-
-### dim_taxi_zone
-
-Grain:
+#### bronze_weather
 
 ```text
-One row per LocationID
+One row per weather timestamp
 ```
 
 ---
 
-### dim_weather
+### Silver Layer
 
-Proposed Grain:
+#### silver_green_taxi
 
 ```text
-One row per weather observation
+One row per cleaned taxi trip
 ```
 
-Possible implementations:
+#### silver_taxi_zones
 
 ```text
-One row per hour
+One row per taxi zone
 ```
 
-or
+#### silver_weather
 
 ```text
-One row per day
-```
-
-To be confirmed.
-
----
-
-### dim_date
-
-Grain:
-
-```text
-One row per calendar date
+One row per weather timestamp
 ```
 
 ---
 
-### dim_time
+### Gold Layer
 
-Grain:
+#### gold_trip_analytics
 
 ```text
-One row per hour
+One row per pickup_date × location_id × vendor_id
 ```
 
-If implemented.
+#### gold_weather_impact
+
+```text
+One row per weather_date × location_id
+```
+
+#### gold_zone_performance
+
+```text
+One row per reporting_date × location_id
+```
+
+#### gold_daily_kpis
+
+```text
+One row per calendar_date
+```
 
 ---
 
-## 7. Relationships
+## 6. Relationships
 
-### fact_green_taxi_trip → dim_taxi_zone
+### Taxi Trips → Taxi Zones
 
 Relationship:
+
+```text
+Many Trips
+      →
+One Pickup Zone
+
+Many Trips
+      →
+One Dropoff Zone
+```
+
+Cardinality:
 
 ```text
 Many-to-One
@@ -288,15 +264,22 @@ Many-to-One
 Business Rule:
 
 ```text
-Many trips can originate from the same taxi zone.
-Many trips can end in the same taxi zone.
+Multiple trips may originate from or end in the same taxi zone.
 ```
 
 ---
 
-### fact_green_taxi_trip → dim_weather
+### Taxi Trips → Weather
 
 Relationship:
+
+```text
+Many Trips
+      →
+One Weather Date
+```
+
+Cardinality:
 
 ```text
 Many-to-One
@@ -305,14 +288,22 @@ Many-to-One
 Business Rule:
 
 ```text
-Many trips may share the same weather observation.
+Trips are joined to weather using trip date.
 ```
 
 ---
 
-### fact_green_taxi_trip → dim_date
+### Gold Tables → Weather
 
 Relationship:
+
+```text
+Many Location-Date Records
+          →
+One Weather Date
+```
+
+Cardinality:
 
 ```text
 Many-to-One
@@ -321,227 +312,248 @@ Many-to-One
 Business Rule:
 
 ```text
-Many trips may occur on the same calendar date.
+Weather represents a single NYC weather source shared across all taxi zones.
 ```
 
 ---
 
-### fact_traffic_advisory → dim_date
+## 7. Design Decisions
 
-Relationship:
+### Medallion Architecture
 
-```text
-Many-to-One
-```
-
-Business Rule:
-
-```text
-Multiple advisories may occur on the same date.
-```
-
----
-
-## 8. Design Decisions
-
-### Dimensional Modeling
-
-The project uses a dimensional model to support analytical reporting and aggregation.
+The project separates ingestion, transformation, and reporting concerns using Bronze, Silver, and Gold layers.
 
 Benefits:
 
-- Simplified reporting
-- Consistent business definitions
-- Reusable dimensions
+- Improved maintainability
+- Clear data lineage
+- Simpler troubleshooting
+- Stronger data quality controls
 
 ---
 
-### Geographic Reference Data
+### Weather Integration Strategy
 
-Taxi Zones are separated into a dedicated dimension table.
+Weather data is modeled separately from taxi data.
 
-Benefits:
+Business Rules:
 
-- Prevents repeated storage of zone information
-- Ensures consistent geographic reporting
-- Improves maintainability
-
----
-
-### Weather Enrichment
-
-Weather data is modeled separately and linked to mobility activity through shared date or datetime attributes.
+- Weather data is sourced from Open-Meteo Historical Forecast API.
+- Weather is filtered to NYC during ingestion.
+- Weather joins occur at date grain.
+- Weather keys are generated from weather dates.
+- Weather represents a single NYC location.
+- Latitude and longitude are excluded because they provide no analytical value for the selected source.
 
 Benefits:
 
 - Reduces duplication
-- Simplifies weather-related analysis
-- Supports weather impact reporting
+- Simplifies weather analysis
+- Improves maintainability
 
 ---
 
-### Incremental & Idempotent Design
+### Geographic Reference Strategy
 
-The pipeline is designed to support:
+Taxi zones are maintained as a dedicated lookup table.
 
-- Incremental file ingestion
-- Repeated processing without duplicate results
+Benefits:
+
+- Consistent geographic reporting
+- Reduced data duplication
+- Centralized location definitions
+
+---
+
+### Gold-Layer Aggregation Strategy
+
+The project uses analytics-ready aggregate tables instead of a trip-level Gold fact table.
+
+Benefits:
+
+- Faster reporting
+- Simplified dashboards
+- Business-focused outputs
+- Reduced reporting complexity
+
+---
+
+### Idempotent Processing
+
+Recurring pipelines are designed to be safely rerun.
+
+Implementation:
+
+- Weather ingestion uses MERGE.
+- Taxi zone ingestion uses MERGE.
+- Duplicate prevention is enforced through business keys and DQ checks.
+
+Benefits:
+
+- Consistent outputs
+- Easier recovery from failures
+- Reliable incremental processing
+
+---
+
+## 8. Data Model Risks
+
+### Duplicate Load Risk
+
+Risk:
+
+```text
+The same source file is loaded multiple times.
+```
+
+Mitigation:
+
+- MERGE-based loading
+- Duplicate monitoring
 - Data quality validation
 
 ---
 
-## 9. Trade-offs
+### Grain Mismatch Risk
 
-### Weather Granularity
-
-Trade-off:
+Risk:
 
 ```text
-Daily weather is simpler
-Hourly weather is more detailed
+Tables are joined at different levels of detail.
 ```
 
-Consideration:
+Mitigation:
 
-```text
-Higher granularity increases analytical flexibility but also increases data volume and join complexity.
-```
+- Explicit grain definitions
+- Join validation checks
 
 ---
 
-### Traffic Advisory Integration
+### Weather Join Risk
 
-Trade-off:
+Risk:
 
 ```text
-Keeping advisories separate reduces complexity.
-Joining advisories directly to trips increases analytical detail.
+One trip joins to multiple weather records.
 ```
 
-Consideration:
+Mitigation:
 
 ```text
-Additional business rules may be required to avoid many-to-many relationships.
+Weather joins occur at date grain only.
 ```
 
 ---
 
-### Snowflake vs Star Schema
+### Double Counting Risk
 
-Trade-off:
-
-```text
-Snowflake:
-Less duplication
-More joins
-
-Star:
-Simpler querying
-More duplication
-```
-
-Consideration:
+Risk:
 
 ```text
-The project prioritizes maintainability and consistency of reference data.
+Duplicate dimension records inflate metrics.
 ```
 
----
+Mitigation:
 
-# Notes / To Be Confirmed
-
-## Final Gold Tables
-
-Confirm implemented Gold tables:
-
-- fact_green_taxi_trip
-- fact_traffic_advisory
-- dim_taxi_zone
-- dim_weather
-- dim_date
-- dim_time
+- Business key validation
+- Uniqueness checks
+- MERGE-based ingestion
 
 ---
 
-## Final ERD
+## 9. Repository Structure
 
-Replace placeholder diagram with actual ERD image generated from the implemented model.
+### GitHub Repository
 
----
-
-## Weather Grain
-
-Confirm whether weather data is stored as:
+The project uses a source-oriented structure.
 
 ```text
-One row per hour
+sources/
+├── green_taxi/
+├── taxi_zones/
+└── weather/
 ```
 
-or
+Benefits:
+
+- Source ownership is clearer
+- Easier development by domain
+- Better organization of ingestion logic
+
+---
+
+### Databricks Catalog
+
+The Databricks implementation uses a layer-oriented structure.
 
 ```text
-One row per day
+nyc_bronze
+nyc_silver
+nyc_gold
 ```
+
+Benefits:
+
+- Aligns with Medallion Architecture
+- Simplifies governance
+- Improves lineage visibility
 
 ---
 
-## Weather Join Strategy
+## 10. Current Implemented Model
 
-Confirm whether weather joins occur on:
+### Bronze
+
+- bronze_green_taxi
+- bronze_taxi_zones
+- bronze_weather
+
+### Silver
+
+- silver_green_taxi
+- silver_taxi_zones
+- silver_weather
+
+### Gold
+
+- gold_trip_analytics
+- gold_weather_impact
+- gold_zone_performance
+- gold_daily_kpis
+
+---
+
+## 11. ERD
+
+Insert final DrawSQL ERD here.
 
 ```text
-Trip Date
-Trip Hour
-Pickup Datetime
-Dropoff Datetime
+                    silver_weather
+                           │
+                           │
+                           ▼
+
+silver_taxi_zones ──► gold_weather_impact
+         │
+         │
+         ▼
+
+gold_zone_performance
+
+         ▲
+         │
+         │
+silver_green_taxi
+         │
+         ├────────────► gold_trip_analytics
+         │
+         ├────────────► gold_zone_performance
+         │
+         └────────────► gold_daily_kpis
+
+gold_weather_impact
+         │
+         ▼
+
+gold_daily_kpis
 ```
-
----
-
-## Traffic Advisory Grain
-
-Confirm whether advisory records represent:
-
-```text
-One advisory
-One advisory per date
-One advisory per affected location
-```
-
----
-
-## Traffic Advisory Integration
-
-Confirm whether advisories:
-
-- Remain standalone facts
-- Are joined directly to trips
-- Are aggregated by date
-- Are aggregated by zone
-
----
-
-## Surrogate Keys
-
-Confirm dimensions that use surrogate keys and document relationship mappings.
-
----
-
-## Final Cardinality Validation
-
-Validate all table relationships after implementation to ensure no many-to-many joins are introduced unintentionally.
-
-## Repository Structure
-Source-Oriented Architecture Explanation
-
-The whole:
-
-Plain Text
-1
-source-oriented
-2
-vs
-3
-layer-oriented
-
-used source oriented in github but layer oriented in databricks catalog
