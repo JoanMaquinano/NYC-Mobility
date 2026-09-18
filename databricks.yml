@@ -2,7 +2,7 @@ bundle:
   name: nyc_mobility
 
 include:
-  - resources/*.yml
+  - resources/jobs/*.yml
 
 sync:
   include:
@@ -14,3 +14,7 @@ variables:
   cluster_id:
     description: Existing Databricks cluster used by the placeholder job.
     default: TODO_SET_CLUSTER_ID
+  warehouse_id:
+    description: SQL warehouse used by the NYC Mobility job tasks.
+    lookup:
+      warehouse: Serverless Starter Warehouse
