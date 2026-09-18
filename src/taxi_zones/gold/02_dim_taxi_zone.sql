@@ -6,7 +6,7 @@ USING (
             WHEN TRIM(borough) IN ('N/A', 'Unknown', '') THEN 'Unknown'
             ELSE TRIM(borough)
         END AS borough,
-        TRIM(zone) AS zone,
+        TRIM(zone_name) AS zone_name,
         CASE
             WHEN TRIM(service_zone) IN ('N/A', 'Unknown', '') THEN 'Unknown'
             ELSE TRIM(service_zone)
@@ -17,18 +17,18 @@ ON t.location_id = s.location_id
 WHEN MATCHED THEN
 UPDATE SET
     t.borough = s.borough,
-    t.zone = s.zone,
+    t.zone_name = s.zone_name,
     t.service_zone = s.service_zone
 WHEN NOT MATCHED THEN
 INSERT (
     location_id,
     borough,
-    zone,
+    zone_name,
     service_zone
 )
 VALUES (
     s.location_id,
     s.borough,
-    s.zone,
+    s.zone_name,
     s.service_zone
 );
