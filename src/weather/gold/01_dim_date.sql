@@ -20,9 +20,9 @@ SELECT
     w_min, w_max, t_min, t_max
 FROM (
     SELECT
-        (SELECT MIN(to_date(weather_hour)) FROM nyc_silver.vw_weather_valid
+        (SELECT MIN(to_date(weather_hour)) FROM nyc_silver.weather_clean
          WHERE weather_hour IS NOT NULL)                                   AS w_min,
-        (SELECT MAX(to_date(weather_hour)) FROM nyc_silver.vw_weather_valid
+        (SELECT MAX(to_date(weather_hour)) FROM nyc_silver.weather_clean
          WHERE weather_hour IS NOT NULL)                                   AS w_max,
         -- Pickup AND dropoff: a trip starting at 23:50 on the last day ends on
         -- the next one, and dropoff_date is a foreign key too.
@@ -133,4 +133,3 @@ SELECT day_name, day_of_week, is_weekend, COUNT(*) AS days
 FROM   `nyc-mobility`.nyc_gold.dim_date
 GROUP  BY day_name, day_of_week, is_weekend
 ORDER  BY day_of_week;
-
