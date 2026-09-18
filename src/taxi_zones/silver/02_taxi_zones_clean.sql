@@ -2,9 +2,11 @@ INSERT OVERWRITE `nyc-mobility`.nyc_silver.taxi_zones_clean
 SELECT
     CAST(location_id AS INT) AS location_id,
     TRIM(Borough) AS borough,
-    TRIM(Zone) AS zone,
+    TRIM(Zone) AS zone_name,
     TRIM(service_zone) AS service_zone,
-    ingestion_time
+    source_file,
+   ingestion_time,
+   current_timestamp() AS silver_at
 FROM (
     SELECT
         *,

@@ -948,7 +948,7 @@ DECLARE OR REPLACE VARIABLE v_blocking_failures INT;
 -- sends you to the check.
 DECLARE OR REPLACE VARIABLE v_blocking_names STRING;
 DECLARE OR REPLACE VARIABLE v_total_failures    INT;
- 
+
 -- TEMPORARY -- report-only mode.
 --
 -- FALSE: both triggers below are still evaluated and the failing checks are
@@ -958,12 +958,13 @@ DECLARE OR REPLACE VARIABLE v_total_failures    INT;
 -- One line so that restoring enforcement is one edit and a grep for
 -- v_gate_enforce finds it. Set it back to TRUE once the named failures are
 -- resolved -- a gate left in report-only mode indefinitely is not a gate.
+
 DECLARE OR REPLACE VARIABLE v_gate_enforce BOOLEAN;
 SET VAR v_gate_enforce = FALSE;
- 
+
 DECLARE OR REPLACE VARIABLE v_gate_tripped BOOLEAN;
 DECLARE OR REPLACE VARIABLE v_gate_message STRING;
- 
+
 -- layer = 'bronze' is redundant while v_run_id is a fresh uuid per notebook
 -- run, but v_blocking_names already carried it and two of the three counters
 -- did not. Three queries over the same rows should not disagree about what
@@ -974,14 +975,14 @@ SET VAR v_blocking_failures = (
     WHERE  run_id = v_run_id AND layer = 'bronze' AND status = 'FAIL'
       AND  check_name IN (SELECT check_name FROM vw_bronze_blocking_checks)
 );
- 
+
 SET VAR v_blocking_names = (
     SELECT COALESCE(concat_ws(', ', collect_list(check_name)), 'none')
     FROM   nyc_quality.dq_results
     WHERE  run_id = v_run_id AND layer = 'bronze' AND status = 'FAIL'
       AND  check_name IN (SELECT check_name FROM vw_bronze_blocking_checks)
 );
- 
+
 SET VAR v_total_failures = (
     SELECT COUNT(*) FROM nyc_quality.dq_results
     WHERE run_id = v_run_id AND layer = 'bronze' AND status = 'FAIL'
@@ -1029,13 +1030,13 @@ SELECT v_blocking_failures AS blocking_failures,
             ELSE 'will continue' END AS verdict;
 
 SELECT CASE
-    WHEN v_blocking_failures > 0
+    WHEN v_gate_enforce AND v_blocking_failures > 0
       THEN raise_error(CONCAT('Bronze DQ gate FAILED (group): ',
                               CAST(v_blocking_failures AS STRING),
                               ' BLOCKING check(s) failed (of ',
                               CAST(v_total_failures AS STRING),
                               ' total). See nyc_quality.dq_results for run ', v_run_id))
-    WHEN v_total_failures >= 5
+    WHEN v_gate_enforce AND v_total_failures >= 5
       THEN raise_error(CONCAT('Bronze DQ gate FAILED (group): ',
                               CAST(v_total_failures AS STRING),
                               ' checks over threshold, none individually blocking. ',

@@ -29,7 +29,11 @@ USING (
     CAST(ingestion_timestamp AS DATE) AS ingestion_date,
     CAST(NULL AS STRING) AS latitude,
     CAST(NULL AS STRING) AS longitude,
-    CAST(NULL AS STRING) AS source_series
+    CAST(NULL AS STRING) AS source_series,
+   weather_timestamp AS weather_hour,
+    CAST(NULL AS ARRAY<STRING>) AS qc_error_descriptions,
+    CAST(NULL AS STRING) AS dq_status,
+    CAST(NULL AS TIMESTAMP) AS silver_at
   FROM (
   SELECT
     -- Core attributes with rounding to 2 decimal places

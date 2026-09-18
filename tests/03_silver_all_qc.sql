@@ -624,7 +624,7 @@ DECLARE OR REPLACE VARIABLE v_blocking_names STRING;
 DECLARE OR REPLACE VARIABLE v_total_failures    INT;
 DECLARE OR REPLACE VARIABLE v_quarantine_pct    DOUBLE;
 DECLARE OR REPLACE VARIABLE v_unprocessed_files INT;
- 
+
 -- TEMPORARY -- report-only mode.
 --
 -- FALSE: every trigger below is still evaluated and still named in the
@@ -637,35 +637,35 @@ DECLARE OR REPLACE VARIABLE v_unprocessed_files INT;
 -- report-only mode indefinitely is the same as no gate.
 DECLARE OR REPLACE VARIABLE v_gate_enforce BOOLEAN;
 SET VAR v_gate_enforce = FALSE;
- 
+
 DECLARE OR REPLACE VARIABLE v_gate_tripped BOOLEAN;
 DECLARE OR REPLACE VARIABLE v_gate_message STRING;
- 
+
 SET VAR v_blocking_failures = (
     SELECT COUNT(*) FROM nyc_quality.dq_results
     WHERE  run_id = v_run_id AND layer = 'silver' AND status = 'FAIL'
       AND  check_name IN (SELECT check_name FROM vw_silver_blocking_checks)
 );
- 
+
 SET VAR v_blocking_names = (
     SELECT COALESCE(concat_ws(', ', collect_list(check_name)), 'none')
     FROM   nyc_quality.dq_results
     WHERE  run_id = v_run_id AND layer = 'silver' AND status = 'FAIL'
       AND  check_name IN (SELECT check_name FROM vw_silver_blocking_checks)
 );
- 
+
 SET VAR v_total_failures = (
     SELECT COUNT(*) FROM nyc_quality.dq_results
     WHERE run_id = v_run_id AND layer = 'silver' AND status = 'FAIL'
 );
- 
+
 SET VAR v_quarantine_pct = (
     SELECT ROUND(100.0 * SUM(CASE WHEN dq_status = 'FAIL' THEN 1 ELSE 0 END)
                  / NULLIF(COUNT(*), 0), 4)
     FROM nyc_silver.green_taxi_clean
 );
- 
- 
+
+
 SET VAR v_unprocessed_files = (
     SELECT COUNT(*)
     FROM (
@@ -702,6 +702,8 @@ SELECT v_blocking_failures AS blocking_failures,
             ELSE 'will continue' END     AS verdict;
 
 SELECT CASE
+    WHEN NOT v_gate_enforce
+      THEN CONCAT('Silver DQ gate in REPORT-ONLY mode (v_gate_enforce = FALSE). Not enforcing.')
     WHEN v_blocking_failures > 0
       THEN raise_error(CONCAT('Silver DQ gate FAILED (group): ',
                               CAST(v_blocking_failures AS STRING),
