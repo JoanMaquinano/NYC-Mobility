@@ -4,6 +4,7 @@
 -- The table is created separately in the shared table-definition script.
 
 -- COMMAND ----------
+
 MERGE INTO `nyc-mobility`.nyc_bronze.weather AS target
 USING (
   SELECT
@@ -21,7 +22,7 @@ USING (
     CURRENT_TIMESTAMP() AS ingestion_timestamp,
     '{weather_file}'  AS source_file_month
   FROM read_files(
-    '/Volumes/workspace/default/ftw_b12_de/groups/week-08/group-d/weather/{weather_file}' ,
+    '/Volumes/workspace/default/ftw-b12-de/groups/week-08/group-d/weather/{weather_file}' ,
     format => 'csv',
     header => true,
     schema => 'date STRING, temperature_2m STRING, apparent_temperature STRING, precipitation_probability STRING, rain STRING, weather_code STRING, cloud_cover STRING, visibility STRING, wind_speed_10m STRING, wind_gusts_10m STRING, month STRING, latitude STRING, longitude STRING, source_series STRING',
@@ -75,4 +76,3 @@ VALUES (
   source.ingestion_timestamp,
   source.source_file_month
 );
-
