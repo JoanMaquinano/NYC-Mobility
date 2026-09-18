@@ -61,8 +61,31 @@ CREATE TABLE IF NOT EXISTS dq_rules (
     check_name       STRING  COMMENT 'matches check_name in dq_results',
     threshold_pct    DOUBLE  COMMENT 'documented here; the running copy lives inline in the check notebook',
     rule_description STRING  COMMENT 'what the check asserts, in one line',
-    rationale        STRING  COMMENT 'why this rule and why this threshold',
-    silver_action    STRING  COMMENT 'QUARANTINE | FLAG | IGNORE'
+    rationale        STRING  COMMENT 'basis tag plus why this rule and why this threshold',
+    silver_action    STRING  COMMENT 'QUARANTINE | FLAG | IGNORE',
+    blocking         BOOLEAN COMMENT 'TRUE if a FAIL on this rule stops the pipeline; mirrors the gate list in the check notebook',
+    denominator_scope STRING COMMENT 'what total_rows counts: table_rows | scalar | vendor_rows | distinct_ids | source_rows | source_files | expected_days | expected_hours | observed_days'
 )
 USING DELTA
 COMMENT 'Catalogue of every data quality rule, with the reasoning behind each threshold.';
+
+
+-- The most recent run per layer, with its headline counts.
+CREATE OR REPLACE VIEW `nyc-mobility`.nyc_quality.vw_latest_dq_run AS
+SELECT r.*
+FROM   `nyc-mobility`.nyc_quality.dq_run_log r
+JOIN  (SELECT layer, MAX(run_ts) AS max_ts
+       FROM   `nyc-mobility`.nyc_quality.dq_run_log
+       GROUP  BY layer) m
+  ON  r.layer = m.layer AND r.run_ts = m.max_ts;
+
+-- Every check from the latest run of each layer.
+CREATE OR REPLACE VIEW `nyc-mobility`.nyc_quality.vw_latest_dq_results AS
+SELECT d.*
+FROM   `nyc-mobility`.nyc_quality.dq_results d
+JOIN  (SELECT layer, MAX(run_ts) AS max_ts
+       FROM   `nyc-mobility`.nyc_quality.dq_results
+       GROUP  BY layer) m
+  ON  d.layer = m.layer AND d.run_ts = m.max_ts;
+
+

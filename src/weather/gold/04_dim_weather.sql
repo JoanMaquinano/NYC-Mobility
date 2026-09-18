@@ -19,7 +19,7 @@ USING (
       weather_code,
       weather_description,
       ingestion_timestamp
-    FROM `nyc-mobility`.nyc_silver.weather_clean
+    FROM `nyc-mobility`.nyc_silver.vw_weather_valid
   ),
   hourly_weather AS (
     SELECT

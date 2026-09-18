@@ -16,7 +16,7 @@ USING (
   FROM (
     SELECT DISTINCT
       CAST(date AS DATE) AS weather_date
-    FROM `nyc-mobility`.nyc_silver.weather_clean
+    FROM `nyc-mobility`.nyc_silver.vw_weather_valid
     WHERE TRY_CAST(date AS TIMESTAMP) IS NOT NULL
   ) dates
 ) AS source
