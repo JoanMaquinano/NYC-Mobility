@@ -8,7 +8,6 @@
 -- COMMAND ----------
 
 -- DBTITLE 1,Create cleaned weather silver table
--- DBTITLE 1,Create cleaned weather silver table
 -- MERGE cleaned weather data into silver table (rounded to 2 decimal places, with weather descriptions)
 MERGE INTO `nyc-mobility`.nyc_silver.weather_clean AS target
 USING (
@@ -104,7 +103,6 @@ WHEN NOT MATCHED THEN INSERT *;
 
 -- COMMAND ----------
 
--- DBTITLE 1,Validation queries
 -- DBTITLE 1,Validation queries
 -- Validation queries
 -- 1. Count rows by month (expect: March=744, April=720, May=744)
