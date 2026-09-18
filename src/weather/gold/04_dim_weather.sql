@@ -19,7 +19,7 @@ USING (
       weather_code,
       weather_description,
       ingestion_timestamp
-    FROM `nyc-mobility`.nyc_silver.vw_weather_valid
+    FROM `nyc-mobility`.nyc_silver.weather_clean
   ),
   hourly_weather AS (
     SELECT
@@ -58,7 +58,7 @@ USING (
     -- Sum across dimension hours to count rainy hours; NULL means unknown.
     CASE
       WHEN rain IS NULL THEN CAST(NULL AS INT)
-      WHEN CAST(rain AS DOUBLE) > 0 THEN 1
+      WHEN rain > 0 THEN 1
       ELSE 0
     END AS rain_hours,
     CAST(wind_speed_10m AS DOUBLE) AS wind_speed,
