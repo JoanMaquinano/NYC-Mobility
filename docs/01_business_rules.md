@@ -2,14 +2,14 @@
 
 ## 1. Purpose
 
-The NYC Mobility project integrates NYC Green Taxi trip records, weather data, taxi zone reference data, and traffic advisory information into a trusted, analytics-ready dataset.
+The NYC Mobility project integrates NYC Green Taxi trip records, weather data, and taxi zone reference data into a trusted, analytics-ready dataset.
 
 The primary business objectives are to:
 
 - Identify when and where taxi demand is highest.
 - Understand how weather impacts mobility demand and trip behavior.
-- Identify areas with strong mobility activity and patterns.
-- Analyze whether traffic disruptions affect taxi activity and travel behavior.
+- Compare mobility activity across taxi zones and boroughs.
+- Provide reliable daily and zone-level KPIs for analytics and reporting.
 
 ---
 
@@ -32,8 +32,11 @@ The primary business objectives are to:
 
 - Weather data provides environmental context for mobility analysis.
 - Weather observations are not mobility events and are used only as enrichment data.
-- Weather attributes may include temperature, precipitation, wind speed, and weather condition indicators.
-- Weather data is linked to taxi activity through a shared date or datetime grain.
+- Weather data represents a single NYC weather location.
+- Weather is associated with taxi trips using the trip date.
+- Weather joins occur at the date grain rather than location grain.
+- Weather attributes include temperature, precipitation probability, rain, cloud cover, visibility, wind speed, and weather codes.
+- Latitude and longitude are excluded from analytics tables because they are constant for the selected NYC weather location and provide no analytical value.
 
 ### NYC Taxi Zones
 
@@ -42,19 +45,12 @@ The primary business objectives are to:
 - Zone names and borough information are derived from Taxi Zone Lookup data.
 - Taxi zones provide the geographic dimension for pickup and dropoff analysis.
 
-### NYC DOT Traffic Advisories
-
-- Traffic advisories represent planned road closures, restrictions, or disruptions.
-- Traffic advisories are treated as contextual events rather than mobility transactions.
-- Traffic advisories may be analyzed alongside trip activity to understand possible disruption impacts.
-- Traffic advisories do not modify source taxi trip records.
-
 ---
 
 ## 3. Data Standardization Rules
 
 - Source column names are standardized using snake_case naming conventions.
-- Date and timestamp fields are converted to a consistent datetime format.
+- Date and timestamp fields are converted to consistent formats.
 - Text values are trimmed to remove leading and trailing spaces.
 - Numeric measures are stored using appropriate numeric data types.
 - Source system identifiers are retained for traceability.
@@ -62,23 +58,25 @@ The primary business objectives are to:
 
 ---
 
-## 4. Surrogate Key Rules
+## 4. Key Rules
 
-- Dimension tables use surrogate keys where appropriate.
-- Source business keys are retained alongside surrogate keys.
-- Fact tables reference dimensions using surrogate keys.
-- Surrogate keys are system-generated and independent of source-system identifiers.
+- Business keys from source systems are retained where available.
+- LocationID is the business key for taxi zones.
+- Weather records use date as the business key.
+- Weather keys are generated from weather dates for analytical joins.
+- Fact records reference dimension records through generated keys where applicable.
 
 ---
 
 ## 5. Derived Field Rules
 
 - Trip duration is calculated using pickup and dropoff timestamps.
-- Date-related attributes may be derived from trip timestamps.
+- Date attributes may be derived from trip timestamps.
 - Hour, day, week, month, and year attributes may be derived for analytical purposes.
 - Pickup and dropoff zone descriptions are derived from Taxi Zone Lookup data.
 - Borough information is derived from Taxi Zone data.
 - Weather context is added through joins with weather observations.
+- Weather keys are generated from weather dates during transformation processing.
 
 ---
 
@@ -86,15 +84,12 @@ The primary business objectives are to:
 
 - NYC TLC trip records are treated as the authoritative source for taxi trip activity.
 - Taxi Zone Lookup data is treated as the authoritative geographic reference.
-- Open-Meteo weather observations reasonably represent weather conditions affecting mobility demand.
-- NYC DOT advisory information represents planned disruptions available at publication time.
+- Open-Meteo weather observations reasonably represent weather conditions affecting mobility demand across NYC.
+- Weather data represents a single city-wide weather source and not localized weather conditions per taxi zone.
 - Missing values may exist in source datasets and are not always considered data quality defects.
 - Incremental loads should produce the same analytical results as historical full loads.
 - Reprocessing the same source data should not introduce duplicate business records.
-Largest state in NYC to generalize
-Weather codes from Open-Meteo to check weather
-Traffic assumptions
-
+- All recurring ingestion processes should be idempotent and safe to rerun.
 
 ---
 
@@ -102,92 +97,24 @@ Traffic assumptions
 
 - The project includes Green Taxi data only and does not include Yellow Taxi trips.
 - Weather observations may not fully capture localized micro-weather conditions across NYC.
-- Traffic advisory coverage depends on information published by NYC DOT.
+- Weather data represents a single NYC location rather than weather observations per borough or taxi zone.
 - Source systems may contain reporting delays, corrections, or missing values.
 - Results should be interpreted as analytical insights rather than operational forecasts.
 
 ---
 
-# Notes / To Be Confirmed
+## 8. Business Metrics / KPIs
 
-## Weather Grain
-
-Confirm:
-
-- One weather record per hour
-- OR one weather record per day
-
-This determines how weather data is joined to taxi activity.
-
----
-
-## Traffic Advisory Grain
-
-Confirm:
-
-- One row per advisory
-- OR one row per affected location
-- OR one row per advisory date
-
----
-
-## Final Gold Tables
-
-Confirm actual Gold-layer tables.
-
-Example:
-
-- fact_green_taxi_trip
-- dim_weather
-- dim_taxi_zone
-- dim_date
-- fact_traffic_advisory
-
----
-
-## Surrogate Key Implementation
-
-Confirm:
-
-- Which dimensions use surrogate keys
-- Key generation strategy
-
----
-
-## Business Metrics / KPIs
-
-Confirm final metrics used for analysis.
-
-Potential metrics:
+The primary metrics supported by the platform include:
 
 - Trip Count
+- Passenger Count
+- Total Revenue
+- Total Fare
 - Average Fare
-- Average Trip Distance
-- Average Trip Duration
-- Pickup Volume
-- Dropoff Volume
-- Revenue Metrics
-- Weather Impact Metrics
-- Traffic Advisory Impact Metrics
-
----
-
-## Weather Join Logic
-
-Confirm whether weather data is joined using:
-
-- Trip Date
-- Trip Hour
-- Pickup Datetime
-- Another business rule
-
----
-
-## Traffic Advisory Integration Logic
-
-Confirm whether traffic advisories are:
-
-- Used for contextual analysis only
-- Joined directly to trips
-- Aggregated by date
-- Aggregated by zone
+- Total Distance
+- Average Distance
+- Average Temperature
+- Rain
+- Precipitation Probability
+- Borough-Level Zone Ranking

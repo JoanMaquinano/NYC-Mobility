@@ -123,12 +123,14 @@ print("Null counts:\n", hourly_dataframe.isna().sum())
 print("Response SHA-256:", raw_sha256)
 display(hourly_dataframe)
 
+
 # COMMAND ----------
+
 # Save three tabular CSV files in the requested Unity Catalog Volume.
 # The Volume must already exist and you need WRITE VOLUME permission.
 from pathlib import Path
 
-WEATHER_FOLDER = Path("/Volumes/workspace/default/ftw_b12_de/groups/week-08/group-d/weather")
+WEATHER_FOLDER = Path("/Volumes/workspace/default/ftw-b12-de/groups/week-08/group-d/weather")
 WEATHER_FOLDER.mkdir(parents=True, exist_ok=True)
 
 # Save original binary evidence separately; CSV is a tabular representation.

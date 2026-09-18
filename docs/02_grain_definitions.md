@@ -2,444 +2,358 @@
 
 ## 1. Purpose
 
-This document defines the grain of each fact and dimension table within the NYC Mobility data model.
+This document defines the grain of each table within the NYC Mobility data platform.
 
 Clearly defining grain ensures:
 
 - Consistent business meaning across tables
-- Correct join behavior between facts and dimensions
+- Correct join behavior
 - Prevention of duplicate records and double-counting
 - Accurate aggregation and reporting
+- Reliable KPI calculations across Bronze, Silver, and Gold layers
 
 ---
 
-## 2. Fact Table Grain
+## 2. Bronze Layer Grain
 
-### fact_green_taxi_trip
+### bronze_green_taxi
 
-**Grain:** One row per taxi trip.
+**Grain:** One row per source taxi trip.
 
-Each record represents a single completed Green Taxi trip reported by the NYC TLC source system.
+Each record represents a single Green Taxi trip from the source parquet files.
 
-Examples:
-
-- One pickup and one dropoff event
-- One fare transaction
-- One trip distance measurement
-
-Expected measures:
-
-- Trip count
-- Trip duration
-- Trip distance
-- Fare amount
-- Tip amount
-- Total amount
+**Business Key:**
+- VendorID
+- lpep_pickup_datetime
+- lpep_dropoff_datetime
+- PULocationID
+- DOLocationID
 
 ---
 
-### fact_traffic_advisory *(if implemented)*
+### bronze_taxi_zones
 
-**Proposed Grain:** One row per traffic advisory.
+**Grain:** One row per taxi zone.
 
-Each record represents a single published traffic advisory event.
+Each record represents a unique NYC TLC taxi zone.
 
-Potential measures:
-
-- Advisory count
-- Affected locations
-- Advisory duration
-
-> Final grain to be confirmed during implementation.
+**Business Key:**
+- LocationID
 
 ---
 
-## 3. Dimension Table Grain
+### bronze_weather
 
-### dim_taxi_zone
+**Grain:** One row per weather timestamp.
 
-**Grain:** One row per LocationID.
+Each record represents a weather observation from Open-Meteo.
 
-Each record represents a unique NYC Taxi Zone.
+**Business Key:**
+- date
+
+---
+
+## 3. Silver Layer Grain
+
+### silver_green_taxi
+
+**Grain:** One row per cleaned taxi trip.
+
+Each record represents a validated and standardized taxi trip after business-rule processing.
+
+---
+
+### silver_taxi_zones
+
+**Grain:** One row per taxi zone.
+
+Each record represents a standardized taxi zone reference record.
+
+---
+
+### silver_weather
+
+**Grain:** One row per weather timestamp.
+
+Each record represents a cleaned weather observation prepared for analytical joins.
+
+---
+
+## 4. Gold Layer Grain
+
+### gold_trip_analytics
+
+**Grain:** One row per pickup_date × location_id × vendor_id.
+
+**Purpose:** Trip volume and ride activity analysis.
 
 Example:
 
 ```text
-LocationID = 87
-Zone = Financial District North
-Borough = Manhattan
+2026-03-01 | 87 | Vendor 2
 ```
+
+**Measures:**
+- trip_count
+- passenger_count
+- total_fare
+- total_distance
+- average_fare
 
 ---
 
-### dim_weather
+### gold_weather_impact
 
-**Proposed Grain:** One row per weather observation.
+**Grain:** One row per weather_date × location_id.
 
-Possible implementations:
+**Purpose:** Analyze relationships between weather conditions and taxi activity.
 
-```text
-One row per hour
-```
-
-or
+Example:
 
 ```text
-One row per day
+2026-03-01 | 87
 ```
 
-The final grain depends on the selected weather integration strategy.
+**Measures:**
+- average_temperature
+- precipitation_probability
+- rain
+- average_fare
+- average_distance
+
+**Notes:**
+- Weather is joined at date level.
+- Weather represents a single NYC weather location.
+- Many locations may share the same weather observation for a given date.
 
 ---
 
-### dim_date *(if implemented)*
+### gold_zone_performance
 
-**Grain:** One row per calendar date.
+**Grain:** One row per reporting_date × location_id.
+
+**Purpose:** Compare taxi zone performance across NYC.
+
+Example:
+
+```text
+2026-03-01 | 87
+```
+
+**Measures:**
+- trip_count
+- revenue
+- average_trip_distance
+- average_fare
+- borough_ranking
+
+---
+
+### gold_daily_kpis
+
+**Grain:** One row per calendar_date.
+
+**Purpose:** Executive-level daily reporting.
 
 Example:
 
 ```text
 2026-03-01
-2026-03-02
-2026-03-03
 ```
 
-Typical attributes:
-
-- Day
-- Week
-- Month
-- Quarter
-- Year
+**Measures:**
+- total_trips
+- total_revenue
+- average_fare
+- average_distance
+- average_temperature
+- weather_conditions
 
 ---
 
-### dim_time *(if implemented)*
+## 5. Grain Validation Rules
 
-**Grain:** One row per hour or time period.
+### bronze_green_taxi
 
-Example:
+**Validation**
 
 ```text
-00:00
-01:00
-...
-23:00
+One source trip should produce one bronze record.
 ```
 
-Used for hourly mobility analysis.
+**Checks**
+- Duplicate business key detection
+- Source-to-target row count validation
 
 ---
 
-## 4. Grain Validation
+### bronze_taxi_zones
 
-The following validation rules help ensure grain consistency.
-
-### fact_green_taxi_trip
-
-Validation:
-
-```text
-One business trip should produce one fact record.
-```
-
-Checks:
-
-- No duplicate trips
-- No duplicate business keys
-- No duplicate trip identifiers
-
----
-
-### dim_taxi_zone
-
-Validation:
+**Validation**
 
 ```text
 One LocationID should appear only once.
 ```
 
-Checks:
-
+**Checks**
 - No duplicate LocationID values
-- One zone description per LocationID
 
 ---
 
-### dim_weather
+### bronze_weather
 
-Validation:
+**Validation**
 
 ```text
-One weather observation per defined weather grain.
+One weather timestamp should appear only once.
 ```
 
-Checks:
-
+**Checks**
 - No duplicate weather timestamps
-- No duplicate weather dates if daily grain is used
+- MERGE prevents duplicate weather loads
 
 ---
 
-### Dimensional Joins
+### silver_green_taxi
 
-Validation:
+**Validation**
 
 ```text
-Every fact record should successfully join to its related dimensions.
+One valid business trip should produce one silver record.
 ```
 
-Checks:
-
-- Taxi trips join to taxi zones
-- Taxi trips join to weather observations
-- Taxi trips join to date dimensions
+**Checks**
+- No duplicated trips
+- Business-rule compliance
 
 ---
 
-## 5. Common Risks
+### silver_taxi_zones
+
+**Validation**
+
+```text
+One LocationID should produce one zone record.
+```
+
+**Checks**
+- No duplicate LocationID values
+
+---
+
+### silver_weather
+
+**Validation**
+
+```text
+One weather timestamp should produce one weather record.
+```
+
+**Checks**
+- No duplicate timestamps
+- Valid weather attributes
+
+---
+
+## 6. Join Expectations
+
+### Taxi Trips → Taxi Zones
+
+**Expected Relationship**
+
+```text
+Many Trips
+      →
+One Pickup Zone
+
+Many Trips
+      →
+One Dropoff Zone
+```
+
+**Cardinality**
+
+```text
+Many-to-One
+```
+
+---
+
+### Taxi Trips → Weather
+
+**Expected Relationship**
+
+```text
+Many Trips
+      →
+One Weather Date
+```
+
+**Cardinality**
+
+```text
+Many-to-One
+```
+
+**Business Rule**
+
+```text
+Trips are joined to weather using trip date.
+```
+
+---
+
+### Gold Tables → Weather
+
+**Expected Relationship**
+
+```text
+Many Location-Date Records
+             →
+One Weather Date
+```
+
+**Cardinality**
+
+```text
+Many-to-One
+```
+
+Because weather is sourced from a single NYC location, the same weather observation may be associated with multiple zones on the same date.
+
+---
+
+## 7. Common Risks
 
 ### Double-Counting Risk
 
-Risk:
+**Risk**
 
 ```text
 Fact records join to duplicate dimension records.
 ```
 
-Example:
+**Result**
 
 ```text
-One taxi trip joins to two weather records.
+Trip counts, revenue, and KPIs become inflated.
 ```
 
-Result:
-
-```text
-Trip counts and revenue become inflated.
-```
+**Mitigation**
+- Enforce unique business keys.
+- Use MERGE for idempotent loads.
 
 ---
 
-### Duplicate Record Risk
+### Duplicate Load Risk
 
-Risk:
-
-```text
-Source data is loaded multiple times.
-```
-
-Example:
+**Risk**
 
 ```text
-March dataset ingested twice.
+Source files are ingested multiple times.
 ```
 
-Result:
+**Result**
 
 ```text
-Duplicate trips appear in Gold tables.
-```
-
----
-
-### Grain Mismatch Risk
-
-Risk:
-
-```text
-Facts and dimensions use different levels of detail.
-```
-
-Example:
-
-```text
-One trip joins to multiple advisory records.
-```
-
-Result:
-
-```text
-Unexpected row multiplication.
-```
-
----
-
-### Weather Join Risk
-
-Risk:
-
-```text
-Weather data is stored at a finer grain than taxi trips.
-```
-
-Example:
-
-```text
-Trip date joins to hourly weather records.
-```
-
-Result:
-
-```text
-One trip may match multiple weather observations.
-```
-
----
-
-### Traffic Advisory Join Risk
-
-Risk:
-
-```text
-Traffic advisories may affect multiple locations and dates.
-```
-
-Result:
-
-```text
-Complex many-to-many joins may occur.
-```
-
-Careful business rules are required before integrating traffic advisories into analytical fact tables.
-
----
-
-## Join Expectations
-
-### Taxi Trip → Taxi Zone
-
-Expected Relationship:
-
-```text
-Many trips
-        →
-One pickup zone
-
-Many trips
-        →
-One dropoff zone
-```
-
-Cardinality:
-
-```text
-Many-to-One
-```
-
----
-
-### Taxi Trip → Weather
-
-Expected Relationship:
-
-```text
-Many trips
-        →
-One weather observation
-```
-
-Cardinality:
-
-```text
-Many-to-One
-```
-
----
-
-### Taxi Trip → Date
-
-Expected Relationship:
-
-```text
-Many trips
-        →
-One date
-```
-
-Cardinality:
-
-```text
-Many-to-One
-```
-
----
-
-# Notes / To Be Confirmed
-
-## Weather Grain
-
-Confirm whether:
-
-```text
-One row per hour
-```
-
-or
-
-```text
-One row per day
-```
-
-This decision impacts joins, aggregations, and weather-related KPIs.
-
----
-
-## Weather Join Logic
-
-Confirm whether weather is joined using:
-
-```text
-Pickup Date
-Pickup Datetime
-Pickup Hour
-Dropoff Datetime
-```
-
----
-
-## Final Gold Fact Grain
-
-Confirm whether the primary Gold fact table remains:
-
-```text
-One row per taxi trip
-```
-
-or becomes:
-
-```text
-One row per day
-One row per zone per day
-One row per zone per day per weather condition
-```
-
----
-
-## Traffic Advisory Grain
-
-Confirm whether traffic advisories are stored as:
-
-```text
-One row per advisory
-One row per affected location
-One row per advisory date
-```
-
----
-
-## Date and Time Dimensions
-
-Confirm whether:
-
-```text
-dim_date
-```
-
-and/or
-
-```text
-dim_time
-```
-
-will be implemented as separate dimensions.
+Duplicate records appear in reporting tables

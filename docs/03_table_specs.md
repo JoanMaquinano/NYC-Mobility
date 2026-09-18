@@ -2,25 +2,29 @@
 
 ## Purpose
 
-This document defines the structure, purpose, grain, keys, sources, and column-level specifications for all tables within the NYC Mobility data model.
+This document defines the structure, purpose, grain, keys, sources, and major columns for all implemented tables within the NYC Mobility data platform.
 
 ---
 
-# fact_green_taxi_trip
+# bronze_green_taxi
 
 ## Table Information
 
 **Purpose**
 
-Stores Green Taxi trip transactions used for mobility demand and trip behavior analysis.
+Stores raw NYC Green Taxi trip records ingested from source parquet files.
 
 **Grain**
 
 One row per taxi trip.
 
-**Primary Key**
+**Business Key**
 
-To be confirmed.
+- VendorID
+- lpep_pickup_datetime
+- lpep_dropoff_datetime
+- PULocationID
+- DOLocationID
 
 **Source**
 
@@ -32,43 +36,45 @@ Monthly
 
 ---
 
-## Column Specifications
+## Major Columns
 
-| Column Name | Data Type | Nullable | Description | Business Rule |
-|------------|------------|------------|------------|------------|
-| vendor_id | TBD | TBD | Taxi technology provider identifier | Values should match valid TLC vendor codes |
-| lpep_pickup_datetime | TBD | TBD | Trip pickup timestamp | Represents trip start time |
-| lpep_dropoff_datetime | TBD | TBD | Trip dropoff timestamp | Represents trip end time |
-| pu_location_id | TBD | TBD | Pickup Taxi Zone ID | Must match Taxi Zone Lookup |
-| do_location_id | TBD | TBD | Dropoff Taxi Zone ID | Must match Taxi Zone Lookup |
-| passenger_count | TBD | TBD | Number of passengers | Should be non-negative |
-| trip_distance | TBD | TBD | Distance travelled in miles | Should be non-negative |
-| fare_amount | TBD | TBD | Base fare amount | Should be non-negative |
-| tip_amount | TBD | TBD | Driver tip amount | May be null or zero |
-| tolls_amount | TBD | TBD | Toll charges | May be zero |
-| total_amount | TBD | TBD | Total trip amount | Should be greater than or equal to fare amount |
-| payment_type | TBD | TBD | Payment method code | Must match valid TLC codes |
-| trip_type | TBD | TBD | Street-hail or dispatch | Must match valid TLC codes |
-| congestion_surcharge | TBD | TBD | Congestion surcharge | Source system value |
-| cbd_congestion_fee | TBD | TBD | Congestion Relief Zone fee | Source system value |
+| Column Name |
+|------------|
+| vendor_id |
+| lpep_pickup_datetime |
+| lpep_dropoff_datetime |
+| pu_location_id |
+| do_location_id |
+| passenger_count |
+| trip_distance |
+| fare_amount |
+| tip_amount |
+| tolls_amount |
+| total_amount |
+| payment_type |
+| trip_type |
+| congestion_surcharge |
+| cbd_congestion_fee |
+| ingestion_timestamp |
+| source_file_month |
 
 ---
 
-# dim_taxi_zone
+# bronze_taxi_zones
 
 ## Table Information
 
 **Purpose**
 
-Provides geographical reference data for pickup and dropoff analysis.
+Stores raw taxi zone reference data.
 
 **Grain**
 
-One row per LocationID.
+One row per taxi zone.
 
-**Primary Key**
+**Business Key**
 
-location_id
+- location_id
 
 **Source**
 
@@ -80,232 +86,358 @@ As Needed
 
 ---
 
-## Column Specifications
+## Major Columns
 
-| Column Name | Data Type | Nullable | Description | Business Rule |
-|------------|------------|------------|------------|------------|
-| location_id | TBD | No | Taxi Zone identifier | Must be unique |
-| zone | TBD | No | Taxi Zone name | Source value |
-| borough | TBD | No | Borough name | Source value |
+| Column Name |
+|------------|
+| location_id |
+| borough |
+| zone |
+| service_zone |
+| ingestion_timestamp |
 
 ---
 
-# dim_weather
+# bronze_weather
 
 ## Table Information
 
 **Purpose**
 
-Provides weather conditions used to enrich mobility analysis.
+Stores raw weather observations from Open-Meteo.
 
 **Grain**
 
-To be confirmed.
+One row per weather timestamp.
 
-**Primary Key**
+**Business Key**
 
-To be confirmed.
+- date
 
 **Source**
 
-Open-Meteo Historical Weather API
+Open-Meteo Historical Forecast API
 
 **Load Frequency**
 
-Daily or batch ingestion
+Monthly Batch
 
 ---
 
-## Column Specifications
+## Major Columns
 
-| Column Name | Data Type | Nullable | Description | Business Rule |
-|------------|------------|------------|------------|------------|
-| weather_date | TBD | TBD | Observation date | Used for weather joins |
-| temperature_2m | TBD | TBD | Temperature measurement | Source value |
-| precipitation | TBD | TBD | Precipitation value | Source value |
-| wind_speed_10m | TBD | TBD | Wind speed measurement | Source value |
-| weather_code | TBD | TBD | Weather condition code | Source value |
+| Column Name |
+|------------|
+| date |
+| temperature_2m |
+| apparent_temperature |
+| precipitation_probability |
+| rain |
+| weather_code |
+| cloud_cover |
+| visibility |
+| wind_speed_10m |
+| wind_gusts_10m |
+| month |
+| source_file_month |
+| ingestion_timestamp |
+
+**Notes**
+
+- Weather represents a single NYC location.
+- Latitude and longitude are intentionally excluded because they are constant for the selected weather source.
 
 ---
 
-# dim_date
+# silver_green_taxi
 
 ## Table Information
 
 **Purpose**
 
-Provides calendar attributes for reporting and aggregation.
+Stores cleaned and standardized Green Taxi trip records.
 
 **Grain**
 
-One row per calendar date.
-
-**Primary Key**
-
-date_key
+One row per cleaned taxi trip.
 
 **Source**
 
-System-generated
-
-**Load Frequency**
-
-Static / generated
+bronze_green_taxi
 
 ---
 
-## Column Specifications
+## Transformations
 
-| Column Name | Data Type | Nullable | Description | Business Rule |
-|------------|------------|------------|------------|------------|
-| date_key | TBD | No | Surrogate date key | Unique |
-| calendar_date | TBD | No | Calendar date | Unique |
-| day_of_week | TBD | No | Day name | Derived |
-| week_number | TBD | No | Week number | Derived |
-| month_number | TBD | No | Month number | Derived |
-| year | TBD | No | Year value | Derived |
+- Data type standardization
+- Null handling
+- Business rule filtering
+- Derived trip duration metrics
 
 ---
 
-# fact_traffic_advisory
+# silver_taxi_zones
 
 ## Table Information
 
 **Purpose**
 
-Stores traffic advisories used to analyze mobility disruptions.
+Stores standardized taxi zone reference data.
 
 **Grain**
 
-To be confirmed.
+One row per taxi zone.
 
-**Primary Key**
+**Business Key**
 
-To be confirmed.
+- location_id
 
 **Source**
 
-NYC DOT Traffic Advisory Website
-
-**Load Frequency**
-
-Weekly
+bronze_taxi_zones
 
 ---
 
-## Column Specifications
+## Major Columns
 
-| Column Name | Data Type | Nullable | Description | Business Rule |
-|------------|------------|------------|------------|------------|
-| advisory_id | TBD | TBD | Advisory identifier | Unique if available |
-| advisory_date | TBD | TBD | Advisory date | Source value |
-| affected_location | TBD | TBD | Impacted area | Source value |
-| advisory_description | TBD | TBD | Advisory details | Source value |
+| Column Name |
+|------------|
+| location_id |
+| borough |
+| zone |
+| service_zone |
 
 ---
 
-# Notes / To Be Confirmed
+# silver_weather
 
-## Final Gold Tables
+## Table Information
 
-Confirm actual implemented tables:
+**Purpose**
 
-- fact_green_taxi_trip
-- dim_taxi_zone
+Stores cleaned weather observations used for analytical joins.
+
+**Grain**
+
+One row per weather timestamp.
+
+**Business Key**
+
+- date
+
+**Source**
+
+bronze_weather
+
+---
+
+## Major Columns
+
+| Column Name |
+|------------|
+| date |
+| temperature_2m |
+| apparent_temperature |
+| precipitation_probability |
+| rain |
+| weather_code |
+| cloud_cover |
+| visibility |
+| wind_speed_10m |
+| wind_gusts_10m |
+
+**Notes**
+
+- `weather_description` is calculated during transformation logic but is not persisted in the table schema.
+
+---
+
+# gold_trip_analytics
+
+## Table Information
+
+**Purpose**
+
+Supports trip volume and ride activity analysis.
+
+**Grain**
+
+One row per pickup_date × location_id × vendor_id.
+
+**Source**
+
+silver_green_taxi
+
+---
+
+## Metrics
+
+| Metric |
+|----------|
+| trip_count |
+| passenger_count |
+| total_fare |
+| total_distance |
+| average_fare |
+
+---
+
+# gold_weather_impact
+
+## Table Information
+
+**Purpose**
+
+Supports weather impact analysis on taxi operations.
+
+**Grain**
+
+One row per weather_date × location_id.
+
+**Sources**
+
+- silver_green_taxi
+- silver_weather
+
+---
+
+## Metrics
+
+| Metric |
+|----------|
+| average_temperature |
+| precipitation_probability |
+| rain |
+| average_fare |
+| average_distance |
+
+**Notes**
+
+- Weather joins occur at the date level.
+- Weather represents a single NYC weather source shared across all taxi zones.
+- Trip count was intentionally excluded to avoid overlap with other reporting tables.
+
+---
+
+# gold_zone_performance
+
+## Table Information
+
+**Purpose**
+
+Supports taxi zone benchmarking and performance comparisons.
+
+**Grain**
+
+One row per reporting_date × location_id.
+
+**Sources**
+
+- silver_green_taxi
+- silver_taxi_zones
+
+---
+
+## Metrics
+
+| Metric |
+|----------|
+| trip_count |
+| revenue |
+| average_trip_distance |
+| average_fare |
+| borough_ranking |
+
+---
+
+# gold_daily_kpis
+
+## Table Information
+
+**Purpose**
+
+Provides executive-level daily KPI reporting.
+
+**Grain**
+
+One row per calendar_date.
+
+**Sources**
+
+- gold_trip_analytics
+- gold_weather_impact
+
+---
+
+## Metrics
+
+| Metric |
+|----------|
+| total_trips |
+| total_revenue |
+| average_fare |
+| average_distance |
+| average_temperature |
+| weather_conditions |
+
+---
+
+# Key Design Decisions
+
+## Weather Integration
+
+- Weather data is sourced from Open-Meteo Historical Forecast API.
+- Weather data is filtered to NYC during ingestion.
+- Weather joins occur at date grain.
+- Weather key is derived from weather date.
+- Latitude and longitude were removed from Bronze and Silver weather tables.
+
+---
+
+## Idempotent Loading
+
+- Taxi zone loads use MERGE operations.
+- Weather loads use MERGE operations.
+- Reprocessing source files should not create duplicate business records.
+
+---
+
+## Catalog Standard
+
+- Use `nyc-mobility`
+- Avoid `workspace.default`
+
+---
+
+## Current Data Model
+
+### Bronze
+
+- bronze_green_taxi
+- bronze_taxi_zones
+- bronze_weather
+
+### Silver
+
+- silver_green_taxi
+- silver_taxi_zones
+- silver_weather
+
+### Gold
+
+- gold_trip_analytics
+- gold_weather_impact
+- gold_zone_performance
+- gold_daily_kpis
+
+---
+
+## Items Intentionally Removed
+
+- fact_traffic_advisory
 - dim_weather
 - dim_date
-- fact_traffic_advisory
-
----
-
-## Primary Keys
-
-Confirm primary key strategy for:
-
-- fact_green_taxi_trip
-- dim_weather
-- fact_traffic_advisory
-
----
-
-## Data Types
-
-Confirm actual Databricks data types for all columns.
-
-Examples:
-
-- STRING
-- INT
-- BIGINT
-- DOUBLE
-- DECIMAL
-- DATE
-- TIMESTAMP
-
----
-
-## Nullable Rules
-
-Confirm whether columns are:
-
-- Required
-- Optional
-- Source-dependent
-
----
-
-## Weather Columns
-
-Confirm final weather attributes selected from Open-Meteo.
-
-Examples:
-
-- temperature_2m
-- precipitation
-- wind_speed_10m
-- weather_code
-
----
-
-## Traffic Advisory Columns
-
-Confirm final advisory fields captured during scraping.
-
-Examples:
-
-- advisory date
-- advisory title
-- affected location
-- closure details
-- advisory description
-
----
-
-## Derived Columns
-
-Confirm additional calculated fields.
-
-Examples:
-
-- trip_duration_minutes
-- pickup_hour
-- pickup_day
-- pickup_week
-- pickup_month
-- pickup_year
-
----
-
-## Surrogate Key Implementation
-
-Confirm which tables use surrogate keys and document key-generation logic.
-
-## Data Dictionary
-### taxi_zones_clean
-
-| Column | Data Type | Description |
-|----------|----------|----------|
-| location_id | INT | Unique taxi zone identifier |
-| borough | STRING | NYC borough |
-| zone | STRING | Taxi zone name |
-| service_zone | STRING | TLC service zone |
+- Traffic advisory specifications
+- Traffic advisory columns
+- Traffic advisory grain assumptions
+- "To Be Confirmed" sections already resolved by implementation

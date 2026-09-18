@@ -58,7 +58,7 @@ USING (
     -- Sum across dimension hours to count rainy hours; NULL means unknown.
     CASE
       WHEN rain IS NULL THEN CAST(NULL AS INT)
-      WHEN rain > 0 THEN 1
+      WHEN CAST(rain AS DOUBLE) > 0 THEN 1
       ELSE 0
     END AS rain_hours,
     CAST(wind_speed_10m AS DOUBLE) AS wind_speed,
