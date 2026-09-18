@@ -1,46 +1,10 @@
+-- # Data Quality — rules catalogue, group pipeline
 
---  Data Quality — rules catalogue, group pipeline
+-- **Run once, and again whenever you add or change a check.**
 
--- Run once, and again whenever you add or change a check.**
---
--- ## What this is, and what it is not
 -- This table **documents** every check: what it asserts, why the threshold
 -- is what it is, and what Silver does about a failure.
-
--- Every rationale opens with one of three tags, so a reviewer can tell a
--- measurement from a default at a glance:
--- | Tag | Meaning |
--- |---|---|
--- | `[structural]` | One occurrence corrupts an aggregate, a join or the grain — or the check is scalar, where a percentage is 0 or 100 and nothing between. Threshold `0.0` is the only value that means anything. |
--- | `[tolerated]` | The source is known to be imperfect. Threshold is the policy `5.0`. Where a rate was counted it is quoted as a **baseline** — what the data does today — never as the basis for the threshold. |
--- | `[provisional]` | Never measured. The same policy `5.0`, and nobody has looked yet. |
 --
--- There is no tier that derives a threshold from its own observed rate.
--- There used to be, called `[measured]`, and eleven rules sat on it. It
--- produced eleven WARNs and zero FAILs, because a limit set just above
--- its own observation is arithmetically incapable of failing on the data
--- it was fitted to. Replacing all eleven with the policy `5.0` changed no
--- verdict on this dataset, which is the proof that the fitted numbers
--- were decoration.
---
--- Query them: `WHERE rationale LIKE '[provisional]%'` lists everything
--- still waiting for a real number.
---
--- ## Two new columns
--- `threshold_pct` was doing two jobs: saying how much is tolerable, and
--- implying how serious a failure is. Those are different questions, and a
--- scalar check makes the overlap obvious -- `total_rows` is 1, so
--- `failed_pct` is 0 or 100 and the threshold carries no information at
--- all. Severity now lives on its own.
---
--- | Column | Meaning |
--- |---|---|
--- | `blocking` | TRUE if a FAIL on this rule stops the pipeline. Mirrors the `IN` list in the check notebook's gate. |
--- | `denominator_scope` | what `total_rows` counts for this rule |
---
--- `denominator_scope` exists because `total_rows` does **not** mean the
--- same thing on every row of `dq_results`, and a dashboard that assumes
--- it does will draw a chart that is wrong without looking wrong:
 --
 -- | Value | `total_rows` is | Example |
 -- |---|---|---|
@@ -56,7 +20,7 @@
 -- comparable numbers, and until now nothing in the results said which one
 -- you were reading.
 --
--- The gate still owns the blocking list
+-- ## The gate still owns the blocking list
 -- `blocking` here is documentation, exactly as `threshold_pct` is: the
 -- running copy is the `IN` list inline in the gate, so a reviewer can see
 -- what stops the pipeline without opening another table, and a missing row
@@ -64,17 +28,16 @@
 -- the drift guard for both, and the check notebook now carries its own
 -- guard for names in the gate that no check produces.
 --
--- silver_action
+-- ## silver_action
 -- | Value | Meaning in Silver |
 -- |---|---|
 -- | `QUARANTINE` | Blocking. Sets `dq_status = QUARANTINE`; excluded from Gold. |
 -- | `FLAG` | Advisory. Row is kept, a `flag_*` column marks it. |
 -- | `IGNORE` | Reported only. An assertion about the source, not about a row. |
-
+--
 -- Only `QUARANTINE` rules feed the 10% drop-rate gate — which is a
 -- different instrument from these thresholds: an aggregate limit on how
 -- much Silver discards overall, blanket on purpose.
-
 SET TIME ZONE 'America/New_York';
 
 USE CATALOG `nyc-mobility`;
@@ -97,6 +60,7 @@ CREATE OR REPLACE TABLE dq_rules (
 USING DELTA
 COMMENT 'Catalogue of every data quality rule, with the reasoning behind each threshold.';
 
+-- ## 2. Load the rules — full rebuild
 
 INSERT OVERWRITE dq_rules
 SELECT * FROM VALUES
@@ -283,10 +247,43 @@ SELECT * FROM VALUES
     ('silver', 'weather_clean', 'validity', 'visibility_parsed', 0.0, 'Visibility survived the conversion from text', '[structural] Bronze weather is entirely text, so this is the try_cast equivalent of a load-fidelity check: a NULL here on a value that was present in Bronze is a conversion we lost. Kept separate from the range checks because out of range and not a number have different fixes.', 'QUARANTINE', FALSE, 'table_rows'),
     ('silver', 'weather_clean', 'validity', 'weather_code_parsed', 5.0, 'Weather code survived the conversion from text', '[tolerated] Tolerated source imperfection at the policy threshold. No number here is derived from its own observed rate.', 'FLAG', FALSE, 'table_rows'),
     ('silver', 'weather_clean', 'completeness', 'weather_hour_not_null', 0.0, 'Every weather row has a parsed hour', '[structural] The join key for the entire weather dimension. A null hour cannot match any trip.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'weather_clean', 'validity', 'wind_speed_parsed', 0.0, 'Wind speed survived the conversion from text', '[structural] Bronze weather is entirely text, so this is the try_cast equivalent of a load-fidelity check: a NULL here on a value that was present in Bronze is a conversion we lost. Kept separate from the range checks because out of range and not a number have different fixes.', 'QUARANTINE', FALSE, 'table_rows')
+    ('silver', 'weather_clean', 'validity', 'wind_speed_parsed', 0.0, 'Wind speed survived the conversion from text', '[structural] Bronze weather is entirely text, so this is the try_cast equivalent of a load-fidelity check: a NULL here on a value that was present in Bronze is a conversion we lost. Kept separate from the range checks because out of range and not a number have different fixes.', 'QUARANTINE', FALSE, 'table_rows'),
+    ('gold', 'dim_date', 'completeness', 'date_key_not_null', 0.0, 'Every date row has a date_key', '[structural] The dimension''s key.', 'IGNORE', TRUE, 'table_rows'),
+    ('gold', 'dim_date', 'uniqueness', 'date_key_unique', 0.0, 'date_key is unique', '[structural] A duplicate dimension key fans out every join that touches it and inflates every total, without failing anything.', 'IGNORE', TRUE, 'table_rows'),
+    ('gold', 'dim_date', 'consistency', 'is_weekend_matches_day_of_week', 0.0, 'is_weekend agrees with day_of_week', '[structural] dayofweek() in Spark is 1 = Sunday through 7 = Saturday, NOT ISO. A weekend test written as IN (6, 7) returns Friday and Saturday, which is wrong in a way that survives every review because the column is still called is_weekend.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'dim_date', 'consistency', 'key_matches_full_date', 0.0, 'date_key is yyyyMMdd of full_date', '[structural] date_key is DERIVED from full_date, so the two can disagree. When they do, a query joining on date_key and one joining on full_date return different answers and neither looks wrong.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'dim_date', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. An empty table makes every SUM(CASE ...) NULL, and a NULL failed_rows falls through the status CASE to FAIL - loud, but by accident and reported as a wall of unrelated failures rather than one cause.', 'IGNORE', TRUE, 'scalar'),
+    ('gold', 'dim_taxi_zone', 'completeness', 'borough_not_blank', 0.0, 'Borough is present and not blank', '[structural] Completeness on a column the dimension is responsible for producing.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'dim_taxi_zone', 'completeness', 'location_id_not_null', 0.0, 'Every zone row has a LocationID', '[structural] The dimension''s key.', 'IGNORE', TRUE, 'table_rows'),
+    ('gold', 'dim_taxi_zone', 'uniqueness', 'location_id_unique', 0.0, 'LocationID is unique', '[structural] As above, on the dimension every trip joins to twice.', 'IGNORE', TRUE, 'table_rows'),
+    ('gold', 'dim_taxi_zone', 'business', 'lookup_has_265_zones', 0.0, 'The zone dimension holds exactly 265 rows', '[structural] Scalar check. The TLC lookup publishes 265 zones. A different number means the dimension was built from a partial load.', 'IGNORE', FALSE, 'scalar'),
+    ('gold', 'dim_taxi_zone', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. An empty table makes every SUM(CASE ...) NULL, and a NULL failed_rows falls through the status CASE to FAIL - loud, but by accident and reported as a wall of unrelated failures rather than one cause.', 'IGNORE', TRUE, 'scalar'),
+    ('gold', 'dim_weather', 'consistency', 'hour_temp_within_day_range', 0.0, 'The hour''s temperature sits inside its own day''s min and max', '[structural] temp_max_c and temp_min_c are windowed over the DAY while temp_avg_c is the hour''s own value, so every hour must sit inside its day''s range. A window written over the wrong partition shows up here and nowhere else.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'dim_weather', 'consistency', 'key_matches_timestamp', 0.0, 'weather_key is yyyyMMddHH of weather_timestamp', '[structural] As above, for yyyyMMddHH of weather_timestamp. The fact table stores weather_key but the Gold build JOINS on weather_timestamp, so both routes have to agree or the stored key points somewhere the join never went.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'dim_weather', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. An empty table makes every SUM(CASE ...) NULL, and a NULL failed_rows falls through the status CASE to FAIL - loud, but by accident and reported as a wall of unrelated failures rather than one cause.', 'IGNORE', TRUE, 'scalar'),
+    ('gold', 'dim_weather', 'completeness', 'weather_condition_not_null', 0.0, 'Every weather hour has a condition', '[structural] Gold''s wet/dry split reads this column. A null condition puts the hour in no bucket at all.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'dim_weather', 'completeness', 'weather_key_not_null', 0.0, 'Every weather row has a weather_key', '[structural] The dimension''s key.', 'IGNORE', TRUE, 'table_rows'),
+    ('gold', 'dim_weather', 'uniqueness', 'weather_key_unique', 0.0, 'weather_key is unique', '[structural] As above. Counted as COUNT(x) - COUNT(DISTINCT x): COUNT(DISTINCT) ignores nulls, so the COUNT(*) form would report a null key as a duplicate key.', 'IGNORE', TRUE, 'table_rows'),
+    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'dropoff_date_resolves', 5.0, 'Every dropoff_date finds a dim_date row', '[tolerated] NOT BLOCKING, and measured in TRIPS rather than distinct dates. dim_date is derived from the dates present in the weather feed, by design, so a trip dated outside the weather window has no calendar row - that is the convention, and Silver deliberately keeps those trips. Over ~100 distinct dates the known TLC strays are about 8 percent, a permanent FAIL at any tolerance purely because the denominator is small; over 133,367 trips the same defect is 0.008 percent. A month genuinely missing from the calendar is about a third of the rows and still fails at 5.0.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'dropoff_zone_resolves', 0.0, 'Every dropoff zone id finds a dim_taxi_zone row', '[structural] As above, for the destination half.', 'IGNORE', TRUE, 'distinct_ids'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'duration_matches_timestamps', 0.0, 'trip_duration_minutes agrees with the two timestamps', '[structural] A derived column must agree with what it was derived from. Recomputed with unix_timestamp(), the same epoch arithmetic the Gold build uses -- timestampdiff() resolves the spring-forward gap differently and reports correct rows as defects. Tolerance 0.02 minutes absorbs the ROUND in the Gold build.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'fact_taxi_trip', 'uniqueness', 'one_row_per_trip_key', 0.0, 'trip_key is unique in the fact table', '[structural] The fact grain. A duplicate trip_key double-counts a trip in every aggregate, and the MERGE updates the same row more than once per run.', 'IGNORE', TRUE, 'table_rows'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'pickup_before_dropoff', 0.0, 'Dropoff is not before pickup', '[structural] Silver already classifies reversed trips as FAIL, so a row here means one got past the classification or past the filter that should have excluded it.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'pickup_date_resolves', 5.0, 'Every pickup_date finds a dim_date row', '[tolerated] NOT BLOCKING, and measured in TRIPS rather than distinct dates. dim_date is derived from the dates present in the weather feed, by design, so a trip dated outside the weather window has no calendar row - that is the convention, and Silver deliberately keeps those trips. Over ~100 distinct dates the known TLC strays are about 8 percent, a permanent FAIL at any tolerance purely because the denominator is small; over 133,367 trips the same defect is 0.008 percent. A month genuinely missing from the calendar is about a third of the rows and still fails at 5.0.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'pickup_zone_resolves', 0.0, 'Every pickup zone id finds a dim_taxi_zone row', '[structural] Measured in distinct ids: one unmatched id is one thing to fix whether it touches six trips or sixty thousand. An unresolvable foreign key is worse than a missing row - the row is PRESENT, so COUNT(*) and SUM(total_amount) include it, then an INNER JOIN silently drops it while a LEFT JOIN buckets it under NULL. The total and the breakdown stop agreeing and nothing failed.', 'IGNORE', TRUE, 'distinct_ids'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'quarantined_rows_in_gold', 0.0, 'No Silver FAIL row reached the fact table', '[structural] FAILS TODAY, on purpose. fact_taxi_trip reads green_taxi_clean rather than vw_green_taxi_valid, so rows Silver classified FAIL are in the fact table. One word in the fact MERGE''s FROM fixes it. Non-blocking because stopping the pipeline does not fix a FROM clause - the check reports the count until it is changed.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'revenue_preserved', 0.0, 'Total revenue survives the move into Gold', '[structural] Scalar check. A cast or a join that damaged a numeric column shows up here and almost nowhere else: row counts would still reconcile perfectly.', 'IGNORE', TRUE, 'scalar'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'rows_reconcile_with_silver', 0.0, 'Fact rows equal the distinct trip keys Silver holds', '[structural] Scalar check. The expected count is the DISTINCT trip_key Silver holds, recomputed here with the same MD5 the Gold build uses rather than derived as a remainder - so the equation can actually fail on arithmetic, which a remainder-based one cannot.', 'IGNORE', TRUE, 'scalar'),
+    ('gold', 'fact_taxi_trip', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. An empty table makes every SUM(CASE ...) NULL, and a NULL failed_rows falls through the status CASE to FAIL - loud, but by accident and reported as a wall of unrelated failures rather than one cause.', 'IGNORE', TRUE, 'scalar'),
+    ('gold', 'fact_taxi_trip', 'completeness', 'trip_key_not_null', 0.0, 'Every fact row has a trip_key', '[structural] The fact''s own key, and the MERGE''s match column. A null makes the merge non-deterministic.', 'IGNORE', TRUE, 'table_rows'),
+    ('gold', 'fact_taxi_trip', 'business', 'trips_carrying_silver_warnings', 100.0, 'How many fact rows carry a Silver warning', '[advisory] ADVISORY at 100.0. qc_error_descriptions is carried into Gold, so the per-row detail survives the move. This is the headline number for it.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'trips_with_unmatched_pickup_zone', 100.0, 'How many fact rows have an unresolvable pickup zone', '[advisory] ADVISORY at 100.0, so it can only ever WARN. The same defect as pickup_zone_resolves counted in trips rather than keys - three zones and eight thousand trips are different sentences and a reviewer wants both. One defect should not stop the pipeline twice.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'trips_without_weather', 100.0, 'How many fact rows got no weather match at all', '[advisory] ADVISORY at 100.0. A trip with no weather hour cannot be classified wet or dry, so it drops out of the comparison the whole project is built on - silently, because the row is still counted everywhere else.', 'IGNORE', FALSE, 'table_rows'),
+    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'weather_hours_used_by_a_trip', 100.0, 'How many weather hours no trip references', '[advisory] ADVISORY at 100.0. An unused weather hour is normal - there are hours with no green taxi trips. A dimension where MOST rows are unused is not normal, and usually means the key convention drifted between the dimension and the fact.', 'IGNORE', FALSE, 'distinct_ids'),
+    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'weather_key_resolves', 0.0, 'Every non-null weather_key finds a dim_weather row', '[structural] Only keys that were actually set are checked. A NULL weather_key means no weather hour matched, which is the advisory trips_without_weather, not a broken reference. Temporarily non-blocking: the 5 known failures are stale keys in fact_taxi_trip left by a build that ran before the Gold notebook set its session timezone. dim_weather is correct; rebuilding the fact clears them. Restore blocking once that rebuild is confirmed at zero.', 'IGNORE', FALSE, 'distinct_ids')
     AS t(layer, table_name, check_category, check_name, threshold_pct, rule_description, rationale, silver_action, blocking, denominator_scope);
 
--- ## Results with their severity attached
+
 
 -- The latest run of each layer, with what each failure actually means.
 -- This is the table to put in the write-up.
@@ -312,7 +309,8 @@ ORDER  BY CASE WHEN d.status = 'FAIL' AND u.blocking THEN 0
 -- If it ever exists from an older run, it is no longer created or used.
 DROP VIEW IF EXISTS `nyc-mobility`.nyc_quality.vw_dq_results_enriched;
 
--- How many rules, and how many are still guesses
+
+
 
 SELECT CASE WHEN rationale LIKE '[structural]%'  THEN 'structural'
             WHEN rationale LIKE '[tolerated]%'   THEN 'tolerated'
@@ -321,14 +319,18 @@ SELECT CASE WHEN rationale LIKE '[structural]%'  THEN 'structural'
        COUNT(*)                                    AS rules,
        ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct
 FROM   dq_rules
-WHERE  layer IN ('bronze', 'silver') AND table_name IN ('green_taxi', 'taxi_zones', 'weather', 'green_taxi_clean', 'taxi_zones_clean', 'weather_clean')
+WHERE  layer IN ('bronze', 'silver', 'gold') AND table_name IN ('green_taxi', 'taxi_zones', 'weather',
+                          'green_taxi_clean', 'taxi_zones_clean', 'weather_clean',
+                          'dim_date', 'dim_weather', 'dim_taxi_zone', 'fact_taxi_trip')
 GROUP  BY 1
 ORDER  BY rules DESC;
 
-
+-- Everything still waiting for a real number.
 SELECT table_name, check_name, threshold_pct, rule_description
 FROM   dq_rules
-WHERE  layer IN ('bronze', 'silver') AND table_name IN ('green_taxi', 'taxi_zones', 'weather', 'green_taxi_clean', 'taxi_zones_clean', 'weather_clean')
+WHERE  layer IN ('bronze', 'silver', 'gold') AND table_name IN ('green_taxi', 'taxi_zones', 'weather',
+                          'green_taxi_clean', 'taxi_zones_clean', 'weather_clean',
+                          'dim_date', 'dim_weather', 'dim_taxi_zone', 'fact_taxi_trip')
   AND  rationale LIKE '[provisional]%'
 ORDER  BY table_name, check_name;
 
@@ -343,7 +345,6 @@ ORDER  BY table_name, check_name;
 -- the catalogue and the notebook agree.
 
 
-
 -- The latest run OF EACH LAYER. Bronze and Silver are separate notebooks with
 -- separate run ids, so there is no single "the latest run" that covers both:
 -- MAX(run_ts) across the two always names the Silver one, because Silver runs
@@ -356,19 +357,23 @@ ORDER  BY table_name, check_name;
 WITH latest AS (
     SELECT layer, MAX(run_ts) AS max_ts
     FROM   dq_results
-    WHERE  layer IN ('bronze', 'silver')
+    WHERE  layer IN ('bronze', 'silver', 'gold')
     GROUP  BY layer
 ),
 ran AS (
     SELECT DISTINCT d.layer, d.table_name, d.check_name, d.threshold_pct
     FROM       dq_results d
     INNER JOIN latest l ON d.layer = l.layer AND d.run_ts = l.max_ts
-    WHERE d.table_name IN ('green_taxi', 'taxi_zones', 'weather', 'green_taxi_clean', 'taxi_zones_clean', 'weather_clean')
+    WHERE d.table_name IN ('green_taxi', 'taxi_zones', 'weather',
+                          'green_taxi_clean', 'taxi_zones_clean', 'weather_clean',
+                          'dim_date', 'dim_weather', 'dim_taxi_zone', 'fact_taxi_trip')
 ),
 documented AS (
     SELECT layer, table_name, check_name, threshold_pct
     FROM   dq_rules
-    WHERE  layer IN ('bronze', 'silver') AND table_name IN ('green_taxi', 'taxi_zones', 'weather', 'green_taxi_clean', 'taxi_zones_clean', 'weather_clean')
+    WHERE  layer IN ('bronze', 'silver', 'gold') AND table_name IN ('green_taxi', 'taxi_zones', 'weather',
+                          'green_taxi_clean', 'taxi_zones_clean', 'weather_clean',
+                          'dim_date', 'dim_weather', 'dim_taxi_zone', 'fact_taxi_trip')
 )
 SELECT
     COALESCE(r.layer, d.layer)                                 AS layer,
@@ -394,13 +399,14 @@ WHERE d.check_name IS NULL
 ORDER BY drift, layer, table_name, check_name;
 
 
-
 -- 4. The catalogue, for the write-up
 
 SELECT table_name, check_category, check_name, threshold_pct,
        blocking, denominator_scope, silver_action, rule_description
 FROM   dq_rules
-WHERE  layer IN ('bronze', 'silver') AND table_name IN ('green_taxi', 'taxi_zones', 'weather', 'green_taxi_clean', 'taxi_zones_clean', 'weather_clean')
+WHERE  layer IN ('bronze', 'silver', 'gold') AND table_name IN ('green_taxi', 'taxi_zones', 'weather',
+                          'green_taxi_clean', 'taxi_zones_clean', 'weather_clean',
+                          'dim_date', 'dim_weather', 'dim_taxi_zone', 'fact_taxi_trip')
 ORDER  BY table_name,
           CASE check_category WHEN 'completeness' THEN 1 WHEN 'uniqueness' THEN 2
                WHEN 'validity' THEN 3 WHEN 'consistency' THEN 4 ELSE 5 END,
@@ -410,12 +416,13 @@ ORDER  BY table_name,
 -- is most likely to challenge.
 SELECT table_name, check_name, threshold_pct, rationale
 FROM   dq_rules
-WHERE  layer IN ('bronze', 'silver') AND table_name IN ('green_taxi', 'taxi_zones', 'weather', 'green_taxi_clean', 'taxi_zones_clean', 'weather_clean')
+WHERE  layer IN ('bronze', 'silver', 'gold') AND table_name IN ('green_taxi', 'taxi_zones', 'weather',
+                          'green_taxi_clean', 'taxi_zones_clean', 'weather_clean',
+                          'dim_date', 'dim_weather', 'dim_taxi_zone', 'fact_taxi_trip')
   AND  threshold_pct NOT IN (5.0)
 ORDER  BY threshold_pct, table_name, check_name;
 
--- Proof that a rerun changes nothing
-
+--  Proof that a rerun changes nothing
 SELECT version, timestamp, operation,
        operationMetrics['numTargetRowsInserted'] AS inserted,
        operationMetrics['numTargetRowsUpdated']  AS updated,

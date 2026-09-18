@@ -1,12 +1,6 @@
--- FACT_TAXI_TRIP table
--- Grain: one row per Green Taxi trip.
---
--- Timestamp convention:
---   TLC taxi timestamps and Open-Meteo weather timestamps are treated as
---   America/New_York local timestamps. Both sides are truncated to the hour
---   before joining. If the upstream tables are changed to UTC, convert both
---   timestamps to UTC before DATE_TRUNC instead of changing only one side.
+-- FACT_TAXI_TRIP Table
 
+--  Create the fact table structure
 CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_gold.fact_taxi_trip (
   trip_key STRING COMMENT 'MD5 hash of trip attributes for deduplication',
   pickup_date DATE COMMENT 'Foreign key to dim_date',
@@ -38,36 +32,47 @@ CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_gold.fact_taxi_trip (
   total_amount DOUBLE,
   store_and_fwd_flag STRING,
   qc_error_descriptions ARRAY<STRING> COMMENT 'Quality control flags from silver layer',
-  created_at TIMESTAMP COMMENT 'Original insert timestamp; preserved on updates'
+  created_at TIMESTAMP COMMENT 'Audit timestamp'
 )
 USING DELTA
 COMMENT 'Green Taxi fact table with trip-level grain'
 PARTITIONED BY (pickup_date);
 
+-- Populate the fact table
 MERGE INTO `nyc-mobility`.nyc_gold.fact_taxi_trip AS target
 USING (
-  WITH trip_candidates AS (
+  WITH trip_with_keys AS (
     SELECT
+      -- Generate deterministic trip_key using MD5 hash
       MD5(CONCAT_WS('|',
-        COALESCE(CAST(t.vendor_id AS STRING), '<NULL>'),
-        COALESCE(CAST(t.lpep_pickup_datetime AS STRING), '<NULL>'),
-        COALESCE(CAST(t.lpep_dropoff_datetime AS STRING), '<NULL>'),
-        COALESCE(CAST(t.pu_location_id AS STRING), '<NULL>'),
-        COALESCE(CAST(t.do_location_id AS STRING), '<NULL>'),
-        COALESCE(CAST(t.trip_distance AS STRING), '<NULL>'),
-        COALESCE(CAST(t.total_amount AS STRING), '<NULL>')
+        CAST(t.vendor_id AS STRING),
+        CAST(t.lpep_pickup_datetime AS STRING),
+        CAST(t.lpep_dropoff_datetime AS STRING),
+        CAST(t.pu_location_id AS STRING),
+        CAST(t.do_location_id AS STRING),
+        CAST(t.trip_distance AS STRING),
+        CAST(t.total_amount AS STRING)
       )) AS trip_key,
+
+      -- Date keys
       DATE(t.lpep_pickup_datetime) AS pickup_date,
       DATE(t.lpep_dropoff_datetime) AS dropoff_date,
+
+      -- Timestamps
       t.lpep_pickup_datetime,
       t.lpep_dropoff_datetime,
+
+      -- Trip duration in minutes (DOUBLE for fractional values)
       ROUND(
-        (UNIX_TIMESTAMP(t.lpep_dropoff_datetime)
-          - UNIX_TIMESTAMP(t.lpep_pickup_datetime)) / 60.0,
+        (UNIX_TIMESTAMP(t.lpep_dropoff_datetime) - UNIX_TIMESTAMP(t.lpep_pickup_datetime)) / 60.0,
         2
       ) AS trip_duration_minutes,
+
+      -- Location IDs (foreign keys to dim_taxi_zone)
       t.pu_location_id AS pickup_location_id,
       t.do_location_id AS dropoff_location_id,
+
+      -- Vendor information (ID + description)
       t.vendor_id,
       CASE t.vendor_id
         WHEN 1 THEN 'Creative Mobile Technologies, LLC'
@@ -75,6 +80,8 @@ USING (
         WHEN 6 THEN 'Other'
         ELSE 'Unknown'
       END AS vendor_name,
+
+      -- Payment information (ID + description)
       t.payment_type AS payment_type_id,
       CASE t.payment_type
         WHEN 0 THEN 'No charge'
@@ -86,6 +93,8 @@ USING (
         WHEN 6 THEN 'Voided trip'
         ELSE 'Unknown'
       END AS payment_type,
+
+      -- Ratecode information (ID + description)
       t.ratecode_id,
       CASE t.ratecode_id
         WHEN 1 THEN 'Standard rate'
@@ -97,14 +106,20 @@ USING (
         WHEN 99 THEN 'Unknown'
         ELSE 'Unknown'
       END AS ratecode_description,
+
+      -- Trip type information (ID + description)
       t.trip_type AS trip_type_id,
       CASE t.trip_type
         WHEN 1 THEN 'Street-hail'
         WHEN 2 THEN 'Dispatch'
         ELSE 'Unknown'
       END AS trip_type_description,
+
+      -- Trip metrics
       t.passenger_count,
       t.trip_distance,
+
+      -- Fare breakdown
       t.fare_amount,
       t.extra,
       t.mta_tax,
@@ -114,48 +129,69 @@ USING (
       t.congestion_surcharge,
       t.cbd_congestion_fee,
       t.total_amount,
+
+      -- Additional attributes
       t.store_and_fwd_flag,
+
+      -- Quality control flags
       t.qc_error_descriptions
-    FROM `nyc-mobility`.nyc_silver.green_taxi_clean AS t
-    WHERE t.lpep_pickup_datetime IS NOT NULL
-      AND t.lpep_dropoff_datetime IS NOT NULL
+
+    FROM `nyc-mobility`.nyc_silver.green_taxi_clean t
   ),
-  deduplicated_trips AS (
-    SELECT *
-    FROM trip_candidates
-    QUALIFY ROW_NUMBER() OVER (
-      PARTITION BY trip_key
-      ORDER BY lpep_pickup_datetime DESC, lpep_dropoff_datetime DESC
-    ) = 1
-  ),
-  trips_with_weather AS (
+
+  trip_with_weather AS (
     SELECT
       t.*,
       w.weather_key
-    FROM deduplicated_trips AS t
-    LEFT JOIN `nyc-mobility`.nyc_gold.dim_weather AS w
-      ON w.weather_timestamp = DATE_TRUNC('HOUR', t.lpep_pickup_datetime)
+    FROM trip_with_keys t
+    LEFT JOIN `nyc-mobility`.nyc_gold.dim_weather w
+      -- dim_weather.weather_timestamp is UTC; lpep_pickup_datetime is NYC local
+      -- time loaded as-is (bronze CAST with UTC session). Convert to UTC before
+      -- truncating to the hour so each trip gets the correct hourly weather record.
+      ON w.weather_timestamp = DATE_TRUNC('HOUR', to_utc_timestamp(t.lpep_pickup_datetime, 'America/New_York'))
   )
+
   SELECT
+    -- Primary Key
     trip_key,
+
+    -- Date Dimensions
     pickup_date,
     dropoff_date,
+
+    -- Weather Dimension (foreign key)
     weather_key,
+
+    -- Location Dimensions (foreign keys to dim_taxi_zone)
     pickup_location_id,
     dropoff_location_id,
+
+    -- Timestamps
     lpep_pickup_datetime,
     lpep_dropoff_datetime,
+
+    -- Trip Metrics
     trip_duration_minutes,
     passenger_count,
     trip_distance,
+
+    -- Vendor (denormalized)
     vendor_id,
     vendor_name,
+
+    -- Payment Type (denormalized)
     payment_type_id,
     payment_type,
+
+    -- Rate Code (denormalized)
     ratecode_id,
     ratecode_description,
+
+    -- Trip Type (denormalized)
     trip_type_id,
     trip_type_description,
+
+    -- Fare Components
     fare_amount,
     extra,
     mta_tax,
@@ -165,105 +201,50 @@ USING (
     congestion_surcharge,
     cbd_congestion_fee,
     total_amount,
+
+    -- Additional Attributes
     store_and_fwd_flag,
+
+    -- Quality Control
     qc_error_descriptions,
+
+    -- Audit columns
     CURRENT_TIMESTAMP() AS created_at
-  FROM trips_with_weather
+
+  FROM trip_with_weather
 ) AS source
 ON target.trip_key = source.trip_key
-WHEN MATCHED THEN UPDATE SET
-  target.pickup_date = source.pickup_date,
-  target.dropoff_date = source.dropoff_date,
-  target.weather_key = source.weather_key,
-  target.pickup_location_id = source.pickup_location_id,
-  target.dropoff_location_id = source.dropoff_location_id,
-  target.lpep_pickup_datetime = source.lpep_pickup_datetime,
-  target.lpep_dropoff_datetime = source.lpep_dropoff_datetime,
-  target.trip_duration_minutes = source.trip_duration_minutes,
-  target.passenger_count = source.passenger_count,
-  target.trip_distance = source.trip_distance,
-  target.vendor_id = source.vendor_id,
-  target.vendor_name = source.vendor_name,
-  target.payment_type_id = source.payment_type_id,
-  target.payment_type = source.payment_type,
-  target.ratecode_id = source.ratecode_id,
-  target.ratecode_description = source.ratecode_description,
-  target.trip_type_id = source.trip_type_id,
-  target.trip_type_description = source.trip_type_description,
-  target.fare_amount = source.fare_amount,
-  target.extra = source.extra,
-  target.mta_tax = source.mta_tax,
-  target.tip_amount = source.tip_amount,
-  target.tolls_amount = source.tolls_amount,
-  target.improvement_surcharge = source.improvement_surcharge,
-  target.congestion_surcharge = source.congestion_surcharge,
-  target.cbd_congestion_fee = source.cbd_congestion_fee,
-  target.total_amount = source.total_amount,
-  target.store_and_fwd_flag = source.store_and_fwd_flag,
-  target.qc_error_descriptions = source.qc_error_descriptions
-WHEN NOT MATCHED THEN INSERT (
-  trip_key,
-  pickup_date,
-  dropoff_date,
-  weather_key,
-  pickup_location_id,
-  dropoff_location_id,
-  lpep_pickup_datetime,
-  lpep_dropoff_datetime,
-  trip_duration_minutes,
-  passenger_count,
-  trip_distance,
-  vendor_id,
-  vendor_name,
-  payment_type_id,
-  payment_type,
-  ratecode_id,
-  ratecode_description,
-  trip_type_id,
-  trip_type_description,
-  fare_amount,
-  extra,
-  mta_tax,
-  tip_amount,
-  tolls_amount,
-  improvement_surcharge,
-  congestion_surcharge,
-  cbd_congestion_fee,
-  total_amount,
-  store_and_fwd_flag,
-  qc_error_descriptions,
-  created_at
-)
-VALUES (
-  source.trip_key,
-  source.pickup_date,
-  source.dropoff_date,
-  source.weather_key,
-  source.pickup_location_id,
-  source.dropoff_location_id,
-  source.lpep_pickup_datetime,
-  source.lpep_dropoff_datetime,
-  source.trip_duration_minutes,
-  source.passenger_count,
-  source.trip_distance,
-  source.vendor_id,
-  source.vendor_name,
-  source.payment_type_id,
-  source.payment_type,
-  source.ratecode_id,
-  source.ratecode_description,
-  source.trip_type_id,
-  source.trip_type_description,
-  source.fare_amount,
-  source.extra,
-  source.mta_tax,
-  source.tip_amount,
-  source.tolls_amount,
-  source.improvement_surcharge,
-  source.congestion_surcharge,
-  source.cbd_congestion_fee,
-  source.total_amount,
-  source.store_and_fwd_flag,
-  source.qc_error_descriptions,
-  source.created_at
-);
+WHEN MATCHED THEN
+  UPDATE SET
+    pickup_date = source.pickup_date,
+    dropoff_date = source.dropoff_date,
+    weather_key = source.weather_key,
+    pickup_location_id = source.pickup_location_id,
+    dropoff_location_id = source.dropoff_location_id,
+    lpep_pickup_datetime = source.lpep_pickup_datetime,
+    lpep_dropoff_datetime = source.lpep_dropoff_datetime,
+    trip_duration_minutes = source.trip_duration_minutes,
+    passenger_count = source.passenger_count,
+    trip_distance = source.trip_distance,
+    vendor_id = source.vendor_id,
+    vendor_name = source.vendor_name,
+    payment_type_id = source.payment_type_id,
+    payment_type = source.payment_type,
+    ratecode_id = source.ratecode_id,
+    ratecode_description = source.ratecode_description,
+    trip_type_id = source.trip_type_id,
+    trip_type_description = source.trip_type_description,
+    fare_amount = source.fare_amount,
+    extra = source.extra,
+    mta_tax = source.mta_tax,
+    tip_amount = source.tip_amount,
+    tolls_amount = source.tolls_amount,
+    improvement_surcharge = source.improvement_surcharge,
+    congestion_surcharge = source.congestion_surcharge,
+    cbd_congestion_fee = source.cbd_congestion_fee,
+    total_amount = source.total_amount,
+    store_and_fwd_flag = source.store_and_fwd_flag,
+    qc_error_descriptions = source.qc_error_descriptions
+    -- created_at intentionally omitted to preserve original insert timestamp
+WHEN NOT MATCHED THEN
+  INSERT *;

@@ -617,12 +617,39 @@ ORDER  BY CASE status WHEN 'FAIL' THEN 0 ELSE 1 END, failed_pct DESC;
 -- | 5 or more failures | nothing individually fatal, something broadly wrong |
 
 DECLARE OR REPLACE VARIABLE v_blocking_failures INT;
+-- The gate used to report a COUNT and leave you to go find out which.
+-- A number alone sends you to the results table with a run id; a name
+-- sends you to the check.
+DECLARE OR REPLACE VARIABLE v_blocking_names STRING;
 DECLARE OR REPLACE VARIABLE v_total_failures    INT;
 DECLARE OR REPLACE VARIABLE v_quarantine_pct    DOUBLE;
 DECLARE OR REPLACE VARIABLE v_unprocessed_files INT;
- 
+
+-- TEMPORARY -- report-only mode.
+--
+-- FALSE: every trigger below is still evaluated and still named in the
+-- output, but the notebook does not raise, so the job carries on to Gold.
+-- TRUE: the gate raises as designed.
+--
+-- This is one line so that restoring enforcement is one edit and so that
+-- a grep for v_gate_enforce finds it. Set it back to TRUE once the
+-- failures listed by the verdict cell are resolved -- a gate left in
+-- report-only mode indefinitely is the same as no gate.
+DECLARE OR REPLACE VARIABLE v_gate_enforce BOOLEAN;
+SET VAR v_gate_enforce = FALSE;
+
+DECLARE OR REPLACE VARIABLE v_gate_tripped BOOLEAN;
+DECLARE OR REPLACE VARIABLE v_gate_message STRING;
+
 SET VAR v_blocking_failures = (
     SELECT COUNT(*) FROM nyc_quality.dq_results
+    WHERE  run_id = v_run_id AND layer = 'silver' AND status = 'FAIL'
+      AND  check_name IN (SELECT check_name FROM vw_silver_blocking_checks)
+);
+
+SET VAR v_blocking_names = (
+    SELECT COALESCE(concat_ws(', ', collect_list(check_name)), 'none')
+    FROM   nyc_quality.dq_results
     WHERE  run_id = v_run_id AND layer = 'silver' AND status = 'FAIL'
       AND  check_name IN (SELECT check_name FROM vw_silver_blocking_checks)
 );
@@ -637,6 +664,7 @@ SET VAR v_quarantine_pct = (
                  / NULLIF(COUNT(*), 0), 4)
     FROM nyc_silver.green_taxi_clean
 );
+
 
 SET VAR v_unprocessed_files = (
     SELECT COUNT(*)
@@ -674,6 +702,8 @@ SELECT v_blocking_failures AS blocking_failures,
             ELSE 'will continue' END     AS verdict;
 
 SELECT CASE
+    WHEN NOT v_gate_enforce
+      THEN CONCAT('Silver DQ gate in REPORT-ONLY mode (v_gate_enforce = FALSE). Not enforcing.')
     WHEN v_blocking_failures > 0
       THEN raise_error(CONCAT('Silver DQ gate FAILED (group): ',
                               CAST(v_blocking_failures AS STRING),

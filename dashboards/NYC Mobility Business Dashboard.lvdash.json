@@ -1,0 +1,2046 @@
+{
+  "datasets": [
+    {
+      "name": "6290f223",
+      "displayName": "dim_date",
+      "config": {
+        "version": "1.1",
+        "source": "`nyc-mobility`.nyc_gold.dim_date",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fefcca45",
+      "displayName": "dim_taxi_zone",
+      "config": {
+        "version": "1.1",
+        "source": "`nyc-mobility`.nyc_gold.dim_taxi_zone",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "e708c53a",
+      "displayName": "dim_weather",
+      "config": {
+        "version": "1.1",
+        "source": "`nyc-mobility`.nyc_gold.dim_weather",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fb2e456c",
+      "displayName": "fact_taxi_trip",
+      "config": {
+        "version": "1.1",
+        "source": "`nyc-mobility`.nyc_gold.fact_taxi_trip",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          },
+          {
+            "name": "pickup_hour",
+            "expr": "HOUR(source.`lpep_pickup_datetime`)",
+            "displayName": "Pickup Hour",
+            "comment": "Hour of day (0-23) when the trip was picked up"
+          },
+          {
+            "name": "dropoff_hour",
+            "expr": "HOUR(source.`lpep_dropoff_datetime`)",
+            "displayName": "Dropoff Hour",
+            "comment": "Hour of day (0-23) when the trip was dropped off"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          },
+          {
+            "name": "trip_count",
+            "expr": "COUNT(*)",
+            "displayName": "Trip Count",
+            "comment": "Total number of taxi trips"
+          },
+          {
+            "displayName": "Avg Trip Duration (min)",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 1.0
+              }
+            },
+            "name": "avg_trip_duration",
+            "expr": "AVG(`trip_duration_minutes`)",
+            "comment": "Average trip duration in minutes"
+          },
+          {
+            "displayName": "Avg Trip Distance (mi)",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            },
+            "name": "avg_trip_distance",
+            "expr": "AVG(`trip_distance`)",
+            "comment": "Average trip distance in miles"
+          },
+          {
+            "displayName": "Total Fare",
+            "format": {
+              "type": "currency",
+              "currencyCode": "USD",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            },
+            "name": "total_fare",
+            "expr": "SUM(`fare_amount`)",
+            "comment": "Sum of all base fare amounts"
+          },
+          {
+            "displayName": "Avg Fare",
+            "format": {
+              "type": "currency",
+              "currencyCode": "USD",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            },
+            "name": "avg_fare",
+            "expr": "AVG(`fare_amount`)",
+            "comment": "Average base fare amount per trip"
+          },
+          {
+            "displayName": "Total Revenue",
+            "format": {
+              "type": "currency",
+              "currencyCode": "USD",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            },
+            "name": "total_revenue",
+            "expr": "SUM(`total_amount`)",
+            "comment": "Sum of all total amounts charged to passengers"
+          },
+          {
+            "displayName": "Avg Revenue per Trip",
+            "format": {
+              "type": "currency",
+              "currencyCode": "USD",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            },
+            "name": "avg_revenue",
+            "expr": "AVG(`total_amount`)",
+            "comment": "Average total amount charged per trip"
+          },
+          {
+            "displayName": "Avg Passengers",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 1.0
+              }
+            },
+            "name": "avg_passenger_count",
+            "expr": "AVG(`passenger_count`)",
+            "comment": "Average number of passengers per trip"
+          },
+          {
+            "displayName": "Total Tips",
+            "format": {
+              "type": "currency",
+              "currencyCode": "USD",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            },
+            "name": "total_tips",
+            "expr": "SUM(`tip_amount`)",
+            "comment": "Sum of all tip amounts"
+          }
+        ]
+      }
+    }
+  ],
+  "relationshipGraphs": [
+    {
+      "sources": [
+        {
+          "name": "dim_date",
+          "datasetName": "6290f223"
+        },
+        {
+          "name": "dim_taxi_zone",
+          "datasetName": "fefcca45"
+        },
+        {
+          "name": "dim_weather",
+          "datasetName": "e708c53a"
+        },
+        {
+          "name": "fact_taxi_trip",
+          "datasetName": "fb2e456c"
+        }
+      ],
+      "relationships": [
+        {
+          "name": "relationship_0",
+          "from": "fact_taxi_trip",
+          "to": "dim_date",
+          "on": "`fact_taxi_trip`.`pickup_date` = `dim_date`.`full_date`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "relationship_1",
+          "from": "fact_taxi_trip",
+          "to": "dim_taxi_zone",
+          "on": "`fact_taxi_trip`.`pickup_location_id` = `dim_taxi_zone`.`location_id`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "relationship_2",
+          "from": "fact_taxi_trip",
+          "to": "dim_weather",
+          "on": "`fact_taxi_trip`.`weather_key` = `dim_weather`.`weather_key`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "30fd71e8",
+      "displayName": "1. Taxi Demand",
+      "layout": [
+        {
+          "widget": {
+            "name": "total_trips_counter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__trip_count)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Total Trips"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(fact_taxi_trip__trip_count)"
+                },
+                "period": {
+                  "fieldName": "fact_taxi_trip__pickup_date",
+                  "hideLabels": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "avg_duration_counter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_duration)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_duration`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Trip Duration"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(fact_taxi_trip__avg_trip_duration)"
+                },
+                "period": {
+                  "fieldName": "fact_taxi_trip__pickup_date",
+                  "hideLabels": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "avg_distance_counter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_distance)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_distance`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Trip Distance"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(fact_taxi_trip__avg_trip_distance)"
+                },
+                "period": {
+                  "fieldName": "fact_taxi_trip__pickup_date",
+                  "hideLabels": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "total_revenue_counter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__total_revenue)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`total_revenue`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Total Revenue"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(fact_taxi_trip__total_revenue)"
+                },
+                "period": {
+                  "fieldName": "fact_taxi_trip__pickup_date",
+                  "hideLabels": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "trips_by_day_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_date__day_name",
+                      "expression": "`dim_date`.`day_name`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__trip_count)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Trips by Day of Week"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "dim_date__day_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(fact_taxi_trip__trip_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "trips_by_hour_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_hour",
+                      "expression": "`fact_taxi_trip`.`pickup_hour`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__trip_count)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Trips by Pickup Hour"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "fact_taxi_trip__pickup_hour",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(fact_taxi_trip__trip_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "trips_by_borough_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_taxi_zone__borough",
+                      "expression": "`dim_taxi_zone`.`borough`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__trip_count)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Trips by Borough"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "dim_taxi_zone__borough",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(fact_taxi_trip__trip_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "top_zones_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_taxi_zone__zone_name",
+                      "expression": "`dim_taxi_zone`.`zone_name`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__trip_count)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Top Pickup Zones by Trip Count"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "dim_taxi_zone__zone_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(fact_taxi_trip__trip_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 8,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "zone_summary_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_taxi_zone__zone_name",
+                      "expression": "`dim_taxi_zone`.`zone_name`"
+                    },
+                    {
+                      "name": "dim_taxi_zone__borough",
+                      "expression": "`dim_taxi_zone`.`borough`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__trip_count)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_duration)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_duration`)"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_distance)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_distance`)"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__total_revenue)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`total_revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Zone Trip Volume Summary"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "dim_taxi_zone__zone_name"
+                  },
+                  {
+                    "fieldName": "dim_taxi_zone__borough"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__trip_count)"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__avg_trip_duration)"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__avg_trip_distance)"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__total_revenue)"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "headline",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## 1. When and Where is Taxi Demand Highest?\n",
+                "Identify the days, hours, and taxi zones with the highest trip volumes across NYC."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "weather_impact",
+      "displayName": "2. Weather Impact",
+      "layout": [
+        {
+          "widget": {
+            "name": "w_total_trips",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__trip_count)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Total Trips"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(fact_taxi_trip__trip_count)"
+                },
+                "period": {
+                  "fieldName": "fact_taxi_trip__pickup_date",
+                  "hideLabels": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w_avg_fare",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_fare)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_fare`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Fare"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(fact_taxi_trip__avg_fare)"
+                },
+                "period": {
+                  "fieldName": "fact_taxi_trip__pickup_date",
+                  "hideLabels": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w_total_revenue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__total_revenue)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`total_revenue`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Total Revenue"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(fact_taxi_trip__total_revenue)"
+                },
+                "period": {
+                  "fieldName": "fact_taxi_trip__pickup_date",
+                  "hideLabels": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w_avg_duration",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_duration)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_duration`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Trip Duration"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(fact_taxi_trip__avg_trip_duration)"
+                },
+                "period": {
+                  "fieldName": "fact_taxi_trip__pickup_date",
+                  "hideLabels": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "trips_by_weather",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_weather__weather_condition",
+                      "expression": "`dim_weather`.`weather_condition`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__trip_count)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Trips by Weather Condition"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "dim_weather__weather_condition",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(fact_taxi_trip__trip_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "duration_by_weather",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_weather__weather_condition",
+                      "expression": "`dim_weather`.`weather_condition`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_duration)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_duration`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Trip Duration by Weather"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "dim_weather__weather_condition",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(fact_taxi_trip__avg_trip_duration)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "distance_by_weather",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_weather__weather_condition",
+                      "expression": "`dim_weather`.`weather_condition`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_distance)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_distance`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Trip Distance by Weather"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "dim_weather__weather_condition",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(fact_taxi_trip__avg_trip_distance)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "fare_by_weather",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_weather__weather_condition",
+                      "expression": "`dim_weather`.`weather_condition`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_fare)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_fare`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Fare by Weather"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "dim_weather__weather_condition",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(fact_taxi_trip__avg_fare)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 8,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "weather_summary_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_weather__weather_condition",
+                      "expression": "`dim_weather`.`weather_condition`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__trip_count)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_duration)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_duration`)"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_distance)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_distance`)"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_fare)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_fare`)"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__total_revenue)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`total_revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Weather Impact Summary"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "dim_weather__weather_condition"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__trip_count)"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__avg_trip_duration)"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__avg_trip_distance)"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__avg_fare)"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__total_revenue)"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "headline",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## 2. How Does Weather Affect Taxi Demand and Trip Behavior?\n",
+                "Compare trip volume, trip duration, distance, and fares across different weather conditions."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "mobility_patterns",
+      "displayName": "3. Mobility Patterns",
+      "layout": [
+        {
+          "widget": {
+            "name": "m_total_trips",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__trip_count)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Total Trips"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(fact_taxi_trip__trip_count)"
+                },
+                "period": {
+                  "fieldName": "fact_taxi_trip__pickup_date",
+                  "hideLabels": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "m_avg_duration",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_duration)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_duration`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Trip Duration"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(fact_taxi_trip__avg_trip_duration)"
+                },
+                "period": {
+                  "fieldName": "fact_taxi_trip__pickup_date",
+                  "hideLabels": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "m_total_revenue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__total_revenue)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`total_revenue`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Total Revenue"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(fact_taxi_trip__total_revenue)"
+                },
+                "period": {
+                  "fieldName": "fact_taxi_trip__pickup_date",
+                  "hideLabels": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "m_avg_fare",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_fare)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_fare`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Fare"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(fact_taxi_trip__avg_fare)"
+                },
+                "period": {
+                  "fieldName": "fact_taxi_trip__pickup_date",
+                  "hideLabels": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "top_zones_trips",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_taxi_zone__zone_name",
+                      "expression": "`dim_taxi_zone`.`zone_name`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__trip_count)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Top Zones by Trip Count"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "dim_taxi_zone__zone_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(fact_taxi_trip__trip_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "top_zones_revenue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_taxi_zone__zone_name",
+                      "expression": "`dim_taxi_zone`.`zone_name`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__total_revenue)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`total_revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Top Zones by Revenue"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "dim_taxi_zone__zone_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(fact_taxi_trip__total_revenue)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "distance_by_borough",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_taxi_zone__borough",
+                      "expression": "`dim_taxi_zone`.`borough`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_distance)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_distance`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Trip Distance by Borough"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "dim_taxi_zone__borough",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(fact_taxi_trip__avg_trip_distance)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "revenue_by_borough",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_taxi_zone__borough",
+                      "expression": "`dim_taxi_zone`.`borough`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__total_revenue)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`total_revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Total Revenue by Borough"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "dim_taxi_zone__borough",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(fact_taxi_trip__total_revenue)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 8,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "zone_performance_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_taxi_zone__zone_name",
+                      "expression": "`dim_taxi_zone`.`zone_name`"
+                    },
+                    {
+                      "name": "dim_taxi_zone__borough",
+                      "expression": "`dim_taxi_zone`.`borough`"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__trip_count)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_duration)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_duration`)"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_trip_distance)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_trip_distance`)"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__avg_fare)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`avg_fare`)"
+                    },
+                    {
+                      "name": "measure(fact_taxi_trip__total_revenue)",
+                      "expression": "MEASURE(`fact_taxi_trip`.`total_revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Zone Performance Summary"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "dim_taxi_zone__zone_name"
+                  },
+                  {
+                    "fieldName": "dim_taxi_zone__borough"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__trip_count)"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__avg_trip_duration)"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__avg_trip_distance)"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__avg_fare)"
+                  },
+                  {
+                    "fieldName": "measure(fact_taxi_trip__total_revenue)"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "headline",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## 3. Which Areas Show the Strongest Mobility Patterns or Opportunities?\n",
+                "Identify zones with consistently high pickups, longer trips, or higher fare activity, and how these patterns change by time and weather."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "global_filters",
+      "displayName": "Global Filters",
+      "layout": [
+        {
+          "widget": {
+            "name": "date_range_filter",
+            "queries": [
+              {
+                "name": "_fact_taxi_trip__pickup_date",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "fact_taxi_trip__pickup_date",
+                      "expression": "`fact_taxi_trip`.`pickup_date`"
+                    },
+                    {
+                      "name": "fact_taxi_trip__pickup_date_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Date Range"
+              },
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "fact_taxi_trip__pickup_date",
+                    "queryName": "_fact_taxi_trip__pickup_date"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "borough_filter",
+            "queries": [
+              {
+                "name": "_dim_taxi_zone__borough",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_taxi_zone__borough",
+                      "expression": "`dim_taxi_zone`.`borough`"
+                    },
+                    {
+                      "name": "dim_taxi_zone__borough_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Borough"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "dim_taxi_zone__borough",
+                    "queryName": "_dim_taxi_zone__borough"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "weather_filter",
+            "queries": [
+              {
+                "name": "_dim_weather__weather_condition",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "dim_weather__weather_condition",
+                      "expression": "`dim_weather`.`weather_condition`"
+                    },
+                    {
+                      "name": "dim_weather__weather_condition_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Weather Condition"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "dim_weather__weather_condition",
+                    "queryName": "_dim_weather__weather_condition"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 12,
+            "height": 3
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "visualizationColors": [
+        "#15AFDD",
+        "#2375A8",
+        "#52A870",
+        "#C85070",
+        "#C89930"
+      ],
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED",
+      "widgetPadding": 12,
+      "widgetMargin": 8,
+      "widgetCornerRadius": 8,
+      "widgetShadow": 5
+    },
+    "applyModeEnabled": false
+  }
+}
