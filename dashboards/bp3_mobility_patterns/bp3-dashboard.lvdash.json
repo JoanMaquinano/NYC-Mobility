@@ -1,17 +1,7 @@
 {
-  "datasets": [
-    {
-      "name": "e17a5692",
-      "displayName": "fact_taxi_trip",
-      "config": {
-        "version": "1.1",
-        "source": "`nyc-mobility`.nyc_gold.fact_taxi_trip"
-      }
-    }
-  ],
   "pages": [
     {
-      "name": "30fd71e8",
+      "name": "e2491538",
       "displayName": "Untitled page",
       "pageType": "PAGE_TYPE_CANVAS"
     }
