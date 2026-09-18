@@ -85,3 +85,20 @@ USING DELTA
 TBLPROPERTIES (
     'delta.columnMapping.mode' = 'name'
 );
+
+--GOLD: dim_table
+CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_gold.dim_date (
+  date_key      INT,
+  full_date     DATE,
+  year          INT,
+  quarter       INT,
+  month         INT,
+  month_name    STRING,
+  day_of_week   INT,
+  day_name      STRING,
+  is_weekend    BOOLEAN
+)
+USING DELTA
+TBLPROPERTIES (
+    'delta.columnMapping.mode' = 'name'
+);
