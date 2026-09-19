@@ -1,15 +1,13 @@
 # NYC Mobility Data Pipeline
 
-## Overview
-
+## 📌 Overview
 This project builds a scalable and repeatable data engineering pipeline that combines multiple NYC public datasets into a trusted mobility analytics dataset.
 
-The pipeline integrates taxi trips, weather conditions, taxi zone metadata, and traffic disruptions into a unified mobility platform for analytical reporting and business insights.
+The pipeline integrates **taxi trips**, **weather conditions**, and **taxi zone metadata** into a unified mobility platform for analytical reporting and business insights.
 
 ---
 
-# Repository Layout
-
+## 📂 Repository Layout
 The source tree is domain-first and keeps Bronze, Silver, and Gold execution order within each domain.
 
 ```text
@@ -26,10 +24,6 @@ src/
 │   ├── bronze/
 │   ├── silver/
 │   └── gold/
-├── traffic_advisories/
-│   ├── bronze/
-│   ├── silver/
-│   └── gold/
 └── shared/
     ├── 00_schema_setup.sql
     ├── 01_bronze_tables.sql
@@ -43,27 +37,13 @@ resources/
 databricks.yml
 ```
 
-The project follows a source-oriented repository structure where each source domain owns its Bronze, Silver, and Gold assets. This approach simplifies ownership, navigation, and collaboration by keeping all assets related to a dataset in a single location.
-
-The `src/shared` directory contains centralized schema and table creation scripts.
-
-```text
-shared/
-    = CREATE SCHEMA
-    = CREATE TABLE
-
-domain folders/
-    = ingestion
-    = transformation
-    = profiling
-    = validation
-```
+- Each **domain folder** owns its Bronze, Silver, and Gold assets.  
+- The `src/shared` directory contains centralized schema and table creation scripts.  
 
 ---
 
-# Architecture
-
-The pipeline follows the Medallion Architecture pattern.
+## 🏛 Architecture
+The pipeline follows the **Medallion Architecture** pattern:
 
 ```text
 Source Data
@@ -87,225 +67,87 @@ Gold
 
 ---
 
-# Why This Project?
-
+## 🎯 Why This Project?
 Urban mobility is influenced by many factors, including:
 
-- Weather conditions
-- Traffic disruptions
-- Geographic location
-- Time of day
-- Travel demand patterns
+- Weather conditions  
+- Geographic location  
+- Time of day  
+- Travel demand patterns  
 
-However, these datasets are typically stored independently and cannot easily be analyzed together.
+These datasets are typically siloed and cannot easily be analyzed together.  
+This project solves that by building a **unified data platform** that:
 
-This project addresses that challenge by building a unified data platform that:
+- Consolidates multiple public mobility datasets  
+- Maintains data quality and consistency  
+- Supports repeatable execution  
+- Prevents duplicate records  
+- Produces analytics-ready datasets  
 
-- Consolidates multiple public mobility datasets
-- Maintains data quality and consistency
-- Supports repeatable execution
-- Prevents duplicate records
-- Produces analytics-ready datasets
-
-The result is a trusted mobility dataset that can help answer questions such as:
-
-### When and where is taxi demand highest?
-
-- Peak travel hours
-- High-demand weekdays
-- Most active taxi zones
-
-### How does weather affect taxi demand?
-
-Analyze relationships between:
-
-- Trip volume
-- Trip distance
-- Trip duration
-- Fare amount
-
-under different weather conditions.
-
-### Which NYC locations show the strongest mobility activity?
-
-Identify areas with:
-
-- High pickup activity
-- High drop-off activity
-- Longer trip patterns
-- Increased transportation demand
-
-### Do road closures impact mobility behavior?
-
-Evaluate whether traffic advisories and road disruptions affect:
-
-- Taxi demand
-- Route patterns
-- Travel times
-- Trip distances
+### Example Questions Answered
+- **When and where is taxi demand highest?**  
+- **How does weather affect taxi demand?**  
+- **Which NYC locations show the strongest mobility activity?**
 
 ---
 
-# Data Sources
+## 📊 Data Sources
 
-## NYC Green Taxi Trips
-
-Monthly taxi trip records provided by NYC TLC.
-
-### Source Details
-
-- Source: NYC TLC Trip Record Data
-- Format: Parquet
-- Acquisition Method: File Ingestion
-- Refresh Frequency: Monthly
-
-### Contains
-
-- Pickup and dropoff timestamps
-- Passenger count
-- Trip distance
-- Fare information
-- Pickup and dropoff locations
-
-Source:
-
-https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page
+### NYC Green Taxi Trips
+- **Source:** NYC TLC Trip Record Data  
+- **Format:** Parquet  
+- **Acquisition:** File ingestion  
+- **Refresh:** Monthly  
+- **Contains:** Pickup/dropoff timestamps, passenger count, trip distance, fare info, pickup/dropoff zones  
+- Source Link [(nyc.gov in Bing)](https://www.bing.com/search?q="https%3A%2F%2Fwww.nyc.gov%2Fsite%2Ftlc%2Fabout%2Ftlc-trip-record-data.page")
 
 ---
 
-## Open-Meteo Historical Weather
-
-Historical weather observations used to enrich mobility analytics and evaluate weather impacts on transportation demand.
-
-### Source Details
-
-- Source: Open-Meteo Historical Weather API
-- Format: JSON (REST API)
-- Acquisition Method: API Extraction
-
-### Contains
-
-- Temperature
-- Precipitation
-- Weather conditions
-- Daily observations
-
-### Assumptions
-
-- Weather codes are sourced from Open-Meteo documentation.
-- Weather interpretation follows WMO Weather Interpretation Codes (WW).
-
-Source:
-
-https://open-meteo.com/en/docs/historical-weather-api
-
-Reference:
-
-https://open-meteo.com/en/docs/historical-weather-api#weather_variable_documentation
+### Open-Meteo Historical Weather
+- **Source:** Open-Meteo Historical Weather API  
+- **Format:** JSON (REST API)  
+- **Acquisition:** API extraction  
+- **Contains:** Temperature, precipitation, weather conditions, daily observations  
+- **Notes:** Weather codes follow WMO standards  
+- [Source Link](https://open-meteo.com/en/docs/historical-weather-api)
 
 ---
 
-## NYC Taxi Zones
-
-Reference dataset used to map trip records to geographic taxi zones and boroughs.
-
-### Source Details
-
-- Source: NYC Taxi Zone Lookup
-- Format: CSV
-- Acquisition Method: File Ingestion
-- Data Type: Reference Data
-
-### Contains
-
-- Zone ID
-- Borough
-- Service Zone
-- Zone Name
-
-Source:
-
-https://s3.amazonaws.com/nyc-tlc/misc/taxi+_zone_lookup.csv
+### NYC Taxi Zones
+- **Source:** NYC Taxi Zone Lookup  
+- **Format:** CSV  
+- **Acquisition:** File ingestion  
+- **Contains:** Zone ID, Borough, Service Zone, Zone Name  
+- Source Link [(s3.amazonaws.com in Bing)](https://www.bing.com/search?q="https%3A%2F%2Fs3.amazonaws.com%2Fnyc-tlc%2Fmisc%2Ftaxi%2B_zone_lookup.csv")
 
 ---
 
-## NYC DOT Traffic Advisories
+## 🔄 Data Ingestion Strategy
 
-Traffic disruption data obtained through web scraping.
-
-### Source Details
-
-- Source: NYC DOT Weekly Traffic Advisory
-- Format: HTML
-- Acquisition Method: Web Scraping
-- Refresh Frequency: Weekly
-
-### Contains
-
-- Road closure information
-- Disruption locations
-- Advisory dates
-
-Source:
-
-https://www.nyc.gov/html/dot/html/motorist/weektraf.shtml
+| Source      | Arrival Method       | Change Detection       | Repeatability              |
+|-------------|----------------------|------------------------|----------------------------|
+| Green Taxi  | Monthly TLC files    | File-based monthly load | Parameterized execution    |
+| Weather     | Open-Meteo API       | Date-range extraction   | Same API requests rerun    |
+| Taxi Zones  | CSV lookup file      | Full refresh            | Reference data reloadable  |
 
 ---
 
-# Data Ingestion Strategy
-
-The pipeline supports repeatable execution across all source systems.
-
-| Source | Arrival Method | Change Detection | Repeatability |
-|----------|----------|----------|----------|
-| Green Taxi | NYC TLC monthly files | File-based monthly loads | Parameterized execution |
-| Weather | Open-Meteo API | Date-range extraction | Same API requests can be rerun |
-| Taxi Zones | CSV lookup file | Full refresh | Reference data can be reloaded |
-| Traffic Advisories | Web scraping | Full source scrape | Scraping process can be rerun |
-
----
-
-# Key Assumptions
-
-## Green Taxi
-
-- Initial project scope focuses on a limited monthly sample.
-- Bronze ingestion is parameterized for repeatable execution.
-
-## Weather
-
-- Open-Meteo weather codes are treated as authoritative.
-- Historical weather observations are considered the source of truth.
-
-## Traffic Advisories
-
-- Advisory records represent roadway conditions published for the specified period.
-
-## General
-
-- Public source systems remain accessible during execution.
-- Source schemas remain stable during the project lifecycle.
-
----
-
-# Documentation
-
-Detailed documentation is maintained in the `docs/` directory.
+## 📑 Documentation
+Detailed documentation lives in the `docs/` directory:
 
 | Document | Purpose |
-|----------|----------|
-| 01_business_rules.md | Business assumptions and transformation rules |
-| 02_grain_definitions.md | Fact and dimension grain definitions |
-| 03_table_specs.md | Table specifications and data dictionary |
-| 04_data_model.md | ERD, snowflake schema, and modeling decisions |
-| 05_data_quality.md | Data quality framework, validation rules, and severity levels |
-| 06_engineering_standards.md | Repository standards, GitHub Actions, and development workflow |
+|----------|---------|
+| 01_business_rules.md | Business assumptions & transformation rules |
+| 02_grain_definitions.md | Fact & dimension grain definitions |
+| 03_table_specs.md | Table specifications & data dictionary |
+| 04_data_model.md | ERD, schema design, modeling decisions |
+| 05_data_quality.md | Data quality framework & validation rules |
+| 06_engineering_standards.md | Repo standards, GitHub Actions, dev workflow |
 
 ---
 
-# Development Workflow
-
-All changes follow a pull request workflow.
+## ⚙️ Development Workflow
+All changes follow a **pull request workflow**:
 
 ```text
 Feature Branch
@@ -325,53 +167,47 @@ Reviewer Approval
 Merge to Main
 ```
 
-Repository automation includes:
-
-- Automatic reviewer assignment
-- Repository validation checks
-- Branch protection rules
-- Standardized code review process
-
----
-
-# Technology Stack
-
-## Data Processing
-
-- Databricks
-- Delta Lake
-- SQL
-- PySpark
-
-## Data Sources
-
-- NYC TLC Trip Records
-- Open-Meteo Historical Weather API
-- NYC Taxi Zone Lookup
-- NYC DOT Traffic Advisories
-
-## Development & Quality
-
-- GitHub
-- GitHub Actions
-- SQLFluff
-- Black
-- Flake8
-- isort
-- nbqa
-- nbstripout
+Automation includes:
+- Automatic reviewer assignment  
+- Repository validation checks  
+- Branch protection rules  
+- Standardized code review process  
 
 ---
 
-# Project Status
+## 🛠 Technology Stack
 
-The current project scope focuses on validating the end-to-end architecture using a limited initial dataset before expanding to additional periods and operational enhancements.
+### Data Processing
+- Databricks  
+- Delta Lake  
+- SQL  
+- PySpark  
 
-Current implementation includes:
+### Data Sources
+- NYC TLC Trip Records  
+- Open-Meteo Historical Weather API  
+- NYC Taxi Zone Lookup  
 
-- Multi-source data ingestion
-- Bronze, Silver, and Gold Medallion layers
-- Automated validation workflows
-- Data quality monitoring
-- Analytics-ready dimensional models
-- GitHub-based collaboration and review workflows
+### Development & Quality
+- GitHub  
+- GitHub Actions  
+- SQLFluff  
+- Black  
+- Flake8  
+- isort  
+- nbqa  
+- nbstripout  
+
+---
+
+## 📌 Project Status
+Current scope focuses on **validating the end-to-end architecture** using a limited initial dataset before expanding further.
+
+✅ Implemented:
+- Multi-source data ingestion  
+- Bronze, Silver, Gold Medallion layers  
+- Automated validation workflows  
+- Data quality monitoring  
+- Analytics-ready dimensional models  
+- GitHub-based collaboration and review workflows  
+```
