@@ -1,7 +1,7 @@
 -- FACT_TAXI_TRIP Table
 
 --  Create the fact table structure
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_gold.fact_taxi_trip (
+CREATE TABLE IF NOT EXISTS nyc_mobility.nyc_gold.fact_taxi_trip (
   trip_key STRING COMMENT 'MD5 hash of trip attributes for deduplication',
   pickup_date DATE COMMENT 'Foreign key to dim_date',
   dropoff_date DATE COMMENT 'Foreign key to dim_date',
@@ -39,7 +39,7 @@ COMMENT 'Green Taxi fact table with trip-level grain'
 PARTITIONED BY (pickup_date);
 
 -- Populate the fact table
-MERGE INTO `nyc-mobility`.nyc_gold.fact_taxi_trip AS target
+MERGE INTO nyc_mobility.nyc_gold.fact_taxi_trip AS target
 USING (
   WITH trip_with_keys AS (
     SELECT
@@ -136,7 +136,7 @@ USING (
       -- Quality control flags
       t.qc_error_descriptions
 
-    FROM `nyc-mobility`.nyc_silver.green_taxi_clean t
+    FROM nyc_mobility.nyc_silver.green_taxi_clean t
   ),
 
   trip_with_weather AS (
@@ -144,7 +144,7 @@ USING (
       t.*,
       w.weather_key
     FROM trip_with_keys t
-    LEFT JOIN `nyc-mobility`.nyc_gold.dim_weather w
+    LEFT JOIN nyc_mobility.nyc_gold.dim_weather w
       -- dim_weather.weather_timestamp is UTC; lpep_pickup_datetime is NYC local
       -- time loaded as-is (bronze CAST with UTC session). Convert to UTC before
       -- truncating to the hour so each trip gets the correct hourly weather record.

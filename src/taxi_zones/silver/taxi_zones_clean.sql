@@ -1,4 +1,4 @@
-INSERT OVERWRITE `nyc-mobility`.nyc_silver.taxi_zones_clean
+INSERT OVERWRITE nyc_mobility.nyc_silver.taxi_zones_clean
 SELECT
     CAST(location_id AS INT) AS location_id,
     TRIM(Borough) AS borough,
@@ -14,7 +14,7 @@ FROM (
             PARTITION BY location_id
             ORDER BY ingestion_time DESC
         ) AS rn
-    FROM `nyc-mobility`.nyc_bronze.taxi_zones
+    FROM nyc_mobility.nyc_bronze.taxi_zones
 )
 WHERE rn = 1
   AND location_id IS NOT NULL;

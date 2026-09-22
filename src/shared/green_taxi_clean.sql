@@ -5,10 +5,10 @@
 --   3. Unified QC validation logic operating directly on casted timestamp types.
 
 SET TIME ZONE 'America/New_York';
-USE CATALOG `nyc-mobility`;
+USE CATALOG nyc_mobility;
 USE SCHEMA nyc_silver;
 
-MERGE INTO `nyc-mobility`.nyc_silver.green_taxi_clean AS target
+MERGE INTO nyc_mobility.nyc_silver.green_taxi_clean AS target
 USING (
   SELECT
     *,
@@ -169,7 +169,7 @@ USING (
         fare_amount     AS raw_fare_amount,
         total_amount    AS raw_total_amount,
         trip_distance   AS raw_trip_distance
-      FROM `nyc-mobility`.nyc_bronze.green_taxi
+      FROM nyc_mobility.nyc_bronze.green_taxi
     ) cleaned_data
     -- Deduplicate deterministically without dropping distinct simultaneous
     -- trips. Note that lpep_pickup_datetime is constant within a partition --
@@ -205,30 +205,30 @@ WHEN NOT MATCHED THEN
 --creates clean and quarantine views
 -- use these views for gold layer
 
-CREATE OR REPLACE VIEW `nyc-mobility`.nyc_silver.vw_green_taxi_valid
+CREATE OR REPLACE VIEW nyc_mobility.nyc_silver.vw_green_taxi_valid
 COMMENT 'Trips usable downstream: clean rows and flagged-but-interpretable rows. What Gold reads.'
 AS
 SELECT *
-FROM   `nyc-mobility`.nyc_silver.green_taxi_clean
+FROM   nyc_mobility.nyc_silver.green_taxi_clean
 WHERE  dq_status IN ('PASS', 'WARN');
 
 
-CREATE OR REPLACE VIEW `nyc-mobility`.nyc_silver.vw_green_taxi_quarantined
+CREATE OR REPLACE VIEW nyc_mobility.nyc_silver.vw_green_taxi_quarantined
 COMMENT 'Trips excluded from Gold, with the reasons. Nothing is deleted; this is a filter, not a table.'
 AS
 SELECT
     *,
     filter(qc_error_descriptions, x -> startswith(x, 'FAIL:')) AS fail_reasons
-FROM   `nyc-mobility`.nyc_silver.green_taxi_clean
+FROM   nyc_mobility.nyc_silver.green_taxi_clean
 WHERE  dq_status = 'FAIL';
 
 -- Rows in neither view. Expect zero. If this ever returns rows, the CASE in
 -- the cleaning notebook did not run on them -- which is a code fault, not a
 -- data fault, and is why dq_status_populated blocks the pipeline.
-CREATE OR REPLACE VIEW `nyc-mobility`.nyc_silver.vw_green_taxi_unclassified
+CREATE OR REPLACE VIEW nyc_mobility.nyc_silver.vw_green_taxi_unclassified
 COMMENT 'Rows with a null or unrecognised dq_status. Always empty when the pipeline is correct.'
 AS
 SELECT *
-FROM   `nyc-mobility`.nyc_silver.green_taxi_clean
+FROM   nyc_mobility.nyc_silver.green_taxi_clean
 WHERE  dq_status IS NULL
    OR  dq_status NOT IN ('PASS', 'WARN', 'FAIL');

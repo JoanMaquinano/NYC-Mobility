@@ -404,7 +404,7 @@ One row per calendar_date.
 
 ## Catalog Standard
 
-- Use `nyc-mobility`
+- Use nyc_mobility
 - Avoid `workspace.default`
 
 ---
@@ -429,15 +429,3 @@ One row per calendar_date.
 - gold_weather_impact
 - gold_zone_performance
 - gold_daily_kpis
-
----
-
-## Items Intentionally Removed
-
-- fact_traffic_advisory
-- dim_weather
-- dim_date
-- Traffic advisory specifications
-- Traffic advisory columns
-- Traffic advisory grain assumptions
-- "To Be Confirmed" sections already resolved by implementation

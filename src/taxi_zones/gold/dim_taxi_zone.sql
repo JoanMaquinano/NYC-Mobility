@@ -1,4 +1,4 @@
-MERGE INTO `nyc-mobility`.nyc_gold.dim_taxi_zone t
+MERGE INTO nyc_mobility.nyc_gold.dim_taxi_zone t
 USING (
     SELECT
         location_id,
@@ -11,7 +11,7 @@ USING (
             WHEN TRIM(service_zone) IN ('N/A', 'Unknown', '') THEN 'Unknown'
             ELSE TRIM(service_zone)
         END AS service_zone
-    FROM `nyc-mobility`.nyc_silver.taxi_zones_clean
+    FROM nyc_mobility.nyc_silver.taxi_zones_clean
 ) s
 ON t.location_id = s.location_id
 WHEN MATCHED THEN

@@ -2,7 +2,7 @@
 
 SET TIME ZONE 'America/New_York';
 
-USE CATALOG `nyc-mobility`;
+USE CATALOG nyc_mobility;
 
 CREATE OR REPLACE TEMPORARY VIEW vw_silver_blocking_checks AS
 SELECT explode(array(

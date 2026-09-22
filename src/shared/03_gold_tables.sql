@@ -1,6 +1,6 @@
 -- GOLD DIMENSION TABLES
 
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_gold.dim_date (
+CREATE TABLE IF NOT EXISTS nyc_mobility.nyc_gold.dim_date (
     date_key INT NOT NULL,
     full_date DATE,
     year INT,
@@ -16,7 +16,7 @@ TBLPROPERTIES (
     'delta.columnMapping.mode' = 'name'
 );
 
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_gold.dim_taxi_zone (
+CREATE TABLE IF NOT EXISTS nyc_mobility.nyc_gold.dim_taxi_zone (
     location_id INT NOT NULL,
     borough STRING,
     zone_name STRING,
@@ -27,7 +27,7 @@ TBLPROPERTIES (
     'delta.columnMapping.mode' = 'name'
 );
 
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_gold.dim_weather (
+CREATE TABLE IF NOT EXISTS nyc_mobility.nyc_gold.dim_weather (
   weather_key STRING,
   weather_date DATE,
   weather_timestamp TIMESTAMP,
@@ -50,7 +50,7 @@ TBLPROPERTIES (
 -- GOLD FACT TABLE
 -- Grain: 1 row = 1 taxi trip
 
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_gold.fact_trip (
+CREATE TABLE IF NOT EXISTS nyc_mobility.nyc_gold.fact_trip (
     trip_key STRING NOT NULL,
 
     date_key INT,
@@ -87,7 +87,7 @@ TBLPROPERTIES (
 );
 
 --GOLD: dim_table
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_gold.dim_date (
+CREATE TABLE IF NOT EXISTS nyc_mobility.nyc_gold.dim_date (
   date_key      INT,
   full_date     DATE,
   year          INT,

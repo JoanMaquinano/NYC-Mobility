@@ -3,7 +3,7 @@
 
 -- Ingest Green Taxi data for the specified year-month from the raw files volume
 -- MERGE INTO is idempotent: re-running with the same year_month will not reload
-MERGE INTO `nyc-mobility`.nyc_bronze.green_taxi AS t
+MERGE INTO nyc_mobility.nyc_bronze.green_taxi AS t
 USING (
     SELECT
         VendorID AS vendor_id,

@@ -1,4 +1,4 @@
-MERGE INTO `nyc-mobility`.nyc_bronze.taxi_zones AS t
+MERGE INTO nyc_mobility.nyc_bronze.taxi_zones AS t
 USING (
     SELECT
         LocationID AS location_id,

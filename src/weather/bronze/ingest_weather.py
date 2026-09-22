@@ -1,8 +1,3 @@
-# Databricks notebook source
-# /// script
-# [tool.databricks.environment]
-# environment_version = "5"
-# ///
 # STEP 1: API to monthly CSV files. Import this Python notebook and run all cells.
 # Packages (openmeteo-requests, requests-cache, retry-requests) are pre-installed in the job environment.
 
@@ -126,9 +121,6 @@ print("Duplicate timestamps:", hourly_dataframe["date"].duplicated().sum())
 print("Null counts:\n", hourly_dataframe.isna().sum())
 print("Response SHA-256:", raw_sha256)
 display(hourly_dataframe)
-
-
-# COMMAND ----------
 
 # Save three tabular CSV files in the requested Unity Catalog Volume.
 # The Volume must already exist and you need WRITE VOLUME permission.

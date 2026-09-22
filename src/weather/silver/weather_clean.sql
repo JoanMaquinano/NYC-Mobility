@@ -1,15 +1,10 @@
--- Databricks notebook source
--- DBTITLE 1,Weather Silver - Clean and Validate
 -- WEATHER SILVER: Clean and validate bronze weather data
--- Reads from: `nyc-mobility`.nyc_bronze.weather
--- Writes to: `nyc-mobility`.nyc_silver.weather_clean (MERGE)
+-- Reads from: nyc_mobility.nyc_bronze.weather
+-- Writes to: nyc_mobility.nyc_silver.weather_clean (MERGE)
 -- Converts string columns to proper types, validates ranges, deduplicates.
 
--- COMMAND ----------
-
--- DBTITLE 1,Create cleaned weather silver table
 -- MERGE cleaned weather data into silver table (rounded to 2 decimal places, with weather descriptions)
-MERGE INTO `nyc-mobility`.nyc_silver.weather_clean AS target
+MERGE INTO nyc_mobility.nyc_silver.weather_clean AS target
 USING (
   SELECT
     date,
@@ -86,7 +81,7 @@ USING (
     
     -- Parse for validation only
     TRY_CAST(date AS TIMESTAMP) AS weather_timestamp
-  FROM `nyc-mobility`.nyc_bronze.weather
+  FROM nyc_mobility.nyc_bronze.weather
 ) cleaned_data
 
 -- Validate date is in expected range (March-May 2026)
@@ -104,25 +99,21 @@ ON target.date <=> source.date
 WHEN MATCHED THEN UPDATE SET *
 WHEN NOT MATCHED THEN INSERT *;
 
-
--- COMMAND ----------
-
--- DBTITLE 1,Validation queries
 -- Validation queries
 -- 1. Count rows by month (expect: March=744, April=720, May=744)
 SELECT month, COUNT(*) AS row_count
-FROM `nyc-mobility`.nyc_silver.weather_clean
+FROM nyc_mobility.nyc_silver.weather_clean
 GROUP BY month
 ORDER BY month;
 
 -- 2. Check for duplicates
 SELECT COUNT(*) AS total_rows,
        COUNT(DISTINCT date) AS unique_dates
-FROM `nyc-mobility`.nyc_silver.weather_clean;
+FROM nyc_mobility.nyc_silver.weather_clean;
 
 -- 3. Preview cleaned data with weather descriptions
 SELECT date, temperature_2m, apparent_temperature, rain, 
        weather_code, wind_speed_10m, cloud_cover
-FROM `nyc-mobility`.nyc_silver.weather_clean
+FROM nyc_mobility.nyc_silver.weather_clean
 ORDER BY date
 LIMIT 10;
