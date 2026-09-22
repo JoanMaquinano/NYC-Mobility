@@ -1,6 +1,6 @@
 
 -- Create silver green_taxi
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_silver.green_taxi_clean (
+CREATE TABLE IF NOT EXISTS nyc_mobility.nyc_silver.green_taxi_clean (
     vendor_id             INT,
     lpep_pickup_datetime  TIMESTAMP,
     lpep_dropoff_datetime TIMESTAMP,
@@ -43,7 +43,7 @@ TBLPROPERTIES (
 );
 
 -- Create silver weather table
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_silver.weather_clean (
+CREATE TABLE IF NOT EXISTS nyc_mobility.nyc_silver.weather_clean (
     -- the typed hour: the key, and what Gold joins on
     weather_hour              TIMESTAMP,
     -- the raw text, kept exactly as it arrived
@@ -72,7 +72,7 @@ TBLPROPERTIES (
     'delta.columnMapping.mode' = 'name'
 );
 
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_silver.taxi_zones_clean (
+CREATE TABLE IF NOT EXISTS nyc_mobility.nyc_silver.taxi_zones_clean (
     location_id    INT       COMMENT '1 to 265. 264 and 265 mean the meter recorded no zone',
     borough        STRING,
     zone_name      STRING    COMMENT 'named zone_name, not zone: ZONE is SQL syntax',

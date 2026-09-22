@@ -6,7 +6,7 @@
 -- Temperature min/max are daily aggregates; temp_avg is the hourly observation.
 -- precipitation_mm measures rain only. Wind fields retain Silver's units.
 
-MERGE INTO `nyc-mobility`.nyc_gold.dim_weather AS target
+MERGE INTO nyc_mobility.nyc_gold.dim_weather AS target
 USING (
   WITH parsed_weather AS (
     SELECT
@@ -19,7 +19,7 @@ USING (
       weather_code,
       weather_description,
       ingestion_timestamp
-    FROM `nyc-mobility`.nyc_silver.weather_clean
+    FROM nyc_mobility.nyc_silver.weather_clean
   ),
   hourly_weather AS (
     SELECT

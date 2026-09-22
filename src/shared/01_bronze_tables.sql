@@ -1,5 +1,5 @@
 -- Create bronze green_taxi_raw table
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_bronze.green_taxi
+CREATE TABLE IF NOT EXISTS nyc_mobility.nyc_bronze.green_taxi
 (
     vendor_id INT,
     lpep_pickup_datetime TIMESTAMP,
@@ -30,7 +30,7 @@ TBLPROPERTIES (
 );
 
 -- Create bronze taxi_zones table
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_bronze.taxi_zones
+CREATE TABLE IF NOT EXISTS nyc_mobility.nyc_bronze.taxi_zones
 (
     location_id INT,
     borough STRING,
@@ -47,7 +47,7 @@ TBLPROPERTIES (
 
 
 -- Weather Bronze Table
-CREATE TABLE IF NOT EXISTS `nyc-mobility`.nyc_bronze.weather (
+CREATE TABLE IF NOT EXISTS nyc_mobility.nyc_bronze.weather (
     date STRING,
     temperature_2m STRING,
     apparent_temperature STRING,

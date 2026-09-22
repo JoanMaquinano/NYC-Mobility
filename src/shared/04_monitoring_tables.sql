@@ -12,9 +12,9 @@
 --  not more tables.
 
 SET TIME ZONE 'America/New_York';
-CREATE SCHEMA IF NOT EXISTS `nyc-mobility`.nyc_quality;
+CREATE SCHEMA IF NOT EXISTS nyc_mobility.nyc_quality;
 
-USE CATALOG `nyc-mobility`;
+USE CATALOG nyc_mobility;
 USE SCHEMA nyc_quality;
 
 -- dq_results — one row per check, per run
@@ -71,20 +71,20 @@ COMMENT 'Catalogue of every data quality rule, with the reasoning behind each th
 
 
 -- The most recent run per layer, with its headline counts.
-CREATE OR REPLACE VIEW `nyc-mobility`.nyc_quality.vw_latest_dq_run AS
+CREATE OR REPLACE VIEW nyc_mobility.nyc_quality.vw_latest_dq_run AS
 SELECT r.*
-FROM   `nyc-mobility`.nyc_quality.dq_run_log r
+FROM   nyc_mobility.nyc_quality.dq_run_log r
 JOIN  (SELECT layer, MAX(run_ts) AS max_ts
-       FROM   `nyc-mobility`.nyc_quality.dq_run_log
+       FROM   nyc_mobility.nyc_quality.dq_run_log
        GROUP  BY layer) m
   ON  r.layer = m.layer AND r.run_ts = m.max_ts;
 
 -- Every check from the latest run of each layer.
-CREATE OR REPLACE VIEW `nyc-mobility`.nyc_quality.vw_latest_dq_results AS
+CREATE OR REPLACE VIEW nyc_mobility.nyc_quality.vw_latest_dq_results AS
 SELECT d.*
-FROM   `nyc-mobility`.nyc_quality.dq_results d
+FROM   nyc_mobility.nyc_quality.dq_results d
 JOIN  (SELECT layer, MAX(run_ts) AS max_ts
-       FROM   `nyc-mobility`.nyc_quality.dq_results
+       FROM   nyc_mobility.nyc_quality.dq_results
        GROUP  BY layer) m
   ON  d.layer = m.layer AND d.run_ts = m.max_ts;
 

@@ -1,11 +1,7 @@
--- Databricks notebook source
 -- WEATHER BRONZE: load one monthly CSV into the shared Bronze Delta table.
 -- Parameter: weather_file (example: weather_april_2026.csv)
 -- The table is created separately in the shared table-definition script.
-
--- COMMAND ----------
-
-MERGE INTO `nyc-mobility`.nyc_bronze.weather AS target
+MERGE INTO nyc_mobility.nyc_bronze.weather AS target
 USING (
   SELECT
     date,

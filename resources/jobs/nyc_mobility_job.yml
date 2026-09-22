@@ -1,14 +1,14 @@
-# NYC Mobility Job
-
 resources:
   jobs:
     NYC_Mobility:
       name: NYC Mobility
+
       tasks:
         - task_key: Preload_Checks
           spark_python_task:
             python_file: ../../tests/01_preload_source_check.py
           environment_key: Default
+
         - task_key: Green_Taxi_Bronze
           depends_on:
             - task_key: Preload_Checks
@@ -16,26 +16,30 @@ resources:
             parameters:
               year_month: 2026-03
             file:
-              path: ../../src/green_taxi/bronze/01_ingest_green_taxi.sql
+              path: ../../src/green_taxi/bronze/ingest_green_taxi.sql
               source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
+            warehouse_id: 1c151e4beb523660
+
         - task_key: Taxi_Zones_Bronze
           depends_on:
             - task_key: Preload_Checks
           sql_task:
             file:
-              path: ../../src/taxi_zones/bronze/04_ingest_taxi_zones.sql
+              path: ../../src/taxi_zones/bronze/ingest_taxi_zones.sql
               source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
+            warehouse_id: 1c151e4beb523660
+
         - task_key: Weather_Bronze
           depends_on:
             - task_key: Preload_Checks
-          notebook_task:
-            notebook_path: ../../src/weather/bronze/bronze_weather.sql
-            base_parameters:
+          sql_task:
+            parameters:
               weather_file: weather_march_2026.csv
-            source: WORKSPACE
-          environment_key: Default
+            file:
+              path: ../../src/weather/bronze/bronze_weather.sql
+              source: WORKSPACE
+            warehouse_id: 1c151e4beb523660
+
         - task_key: Bronze_QC
           depends_on:
             - task_key: Weather_Bronze
@@ -45,29 +49,35 @@ resources:
             file:
               path: ../../tests/02_bronze_all_qc.sql
               source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
+            warehouse_id: 1c151e4beb523660
+
         - task_key: Green_Taxi_Silver
           depends_on:
             - task_key: Bronze_QC
           sql_task:
             file:
-              path: ../../src/green_taxi/silver/01_green_taxi_clean.sql
+              path: ../../src/green_taxi/silver/green_taxi_clean.sql
               source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
+            warehouse_id: 1c151e4beb523660
+
         - task_key: Taxi_Zone_Silver
           depends_on:
             - task_key: Bronze_QC
           sql_task:
             file:
-              path: ../../src/taxi_zones/silver/02_taxi_zones_clean.sql
+              path: ../../src/taxi_zones/silver/taxi_zones_clean.sql
               source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
+            warehouse_id: 1c151e4beb523660
+
         - task_key: Weather_Silver
           depends_on:
             - task_key: Bronze_QC
-          notebook_task:
-            notebook_path: ../../src/weather/silver/04_weather_clean.sql
-            source: WORKSPACE
+          sql_task:
+            file:
+              path: ../../src/weather/silver/weather_clean.sql
+              source: WORKSPACE
+            warehouse_id: 1c151e4beb523660
+
         - task_key: Silver_QC
           depends_on:
             - task_key: Taxi_Zone_Silver
@@ -77,39 +87,44 @@ resources:
             file:
               path: ../../tests/03_silver_all_qc.sql
               source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
+            warehouse_id: 1c151e4beb523660
+
         - task_key: Dim_Date
           depends_on:
             - task_key: Silver_QC
           sql_task:
             file:
-              path: ../../src/weather/gold/01_dim_date.sql
+              path: ../../src/weather/gold/dim_date.sql
               source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
+            warehouse_id: 1c151e4beb523660
+
         - task_key: Dim_Taxi_Zone
           depends_on:
             - task_key: Silver_QC
           sql_task:
             file:
-              path: ../../src/taxi_zones/gold/02_dim_taxi_zone.sql
+              path: ../../src/taxi_zones/gold/dim_taxi_zone.sql
               source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
+            warehouse_id: 1c151e4beb523660
+
         - task_key: Dim_Weather
           depends_on:
             - task_key: Silver_QC
           sql_task:
             file:
-              path: ../../src/weather/gold/04_dim_weather.sql
+              path: ../../src/weather/gold/dim_weather.sql
               source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
+            warehouse_id: 1c151e4beb523660
+
         - task_key: Fact_Trip
           depends_on:
             - task_key: Silver_QC
           sql_task:
             file:
-              path: ../../src/green_taxi/gold/06_fact_taxi_trip.sql
+              path: ../../src/green_taxi/gold/fact_taxi_trip.sql
               source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
+            warehouse_id: 1c151e4beb523660
+
         - task_key: Gold_QC
           depends_on:
             - task_key: Dim_Weather
@@ -119,22 +134,17 @@ resources:
             - task_key: Silver_QC
           sql_task:
             file:
-              path: ../../tests/05_at_rest_integrity_qc.sql
+              path: ../../tests/04_gold_all_qc.sql
               source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
-        - task_key: At-Rest_Integrity_QC
-          depends_on:
-            - task_key: Gold_QC
-          sql_task:
-            file:
-              path: ../../tests/05_at_rest_integrity_qc.sql
-              source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
+            warehouse_id: 1c151e4beb523660
+
       queue:
         enabled: true
+
       parameters:
         - name: year_month
           default: 2026-03
+
       environments:
         - environment_key: Default
           spec:
@@ -143,4 +153,5 @@ resources:
               - requests-cache==1.3.3
               - retry-requests==2.0.0
             environment_version: "6"
+
       performance_target: PERFORMANCE_OPTIMIZED

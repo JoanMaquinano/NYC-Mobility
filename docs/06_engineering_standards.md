@@ -278,15 +278,15 @@ Benefits:
 Use:
 
 ```text
-nyc-mobility
+nyc_mobility
 ```
 
 Examples:
 
 ```sql
-`nyc-mobility`.nyc_bronze.weather
-`nyc-mobility`.nyc_silver.weather_clean
-`nyc-mobility`.nyc_gold.gold_trip_analytics
+nyc_mobility.nyc_bronze.weather
+nyc_mobility.nyc_silver.weather_clean
+nyc_mobility.nyc_gold.gold_trip_analytics
 ```
 
 Avoid:
@@ -519,14 +519,15 @@ Deploy / Execute Workflow
 
 ---
 
-# Current Project Standards
+# Project Standards
 
 - Repository uses a source-oriented structure.
 - Databricks uses a layer-oriented Medallion structure.
 - CREATE TABLE statements are stored separately from ingestion processes.
 - Weather ingestion is split into API extraction and Bronze loading.
 - Weather and taxi zone pipelines use MERGE for idempotency.
-- Shared catalog standard is `nyc-mobility`.
+- Shared catalog standard is nyc_mobility.
+- All files follow the snake case naming convention.
 - Pull Requests are required for all repository changes.
 - GitHub Actions automate reviewer assignment and repository validation.
 - Data quality validation must execute before publishing Gold-layer outputs.
