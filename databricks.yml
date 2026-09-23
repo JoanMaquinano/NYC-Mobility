@@ -12,9 +12,21 @@ sync:
 
 variables:
   cluster_id:
-    description: Existing Databricks cluster used by the placeholder job.
-    default: TODO_SET_CLUSTER_ID
+    description: Databricks cluster ID
+    default: ""
+
   warehouse_id:
-    description: SQL warehouse used by the NYC Mobility job tasks.
+    description: SQL Warehouse ID
     lookup:
       warehouse: Serverless Starter Warehouse
+
+targets:
+  dev:
+    mode: development
+    default: true
+
+  prod:
+    mode: production
+
+    workspace:
+      root_path: /Workspace/Users/joan.maquinano@ftwfoundation.org/.bundle/${bundle.name}/${bundle.target}
