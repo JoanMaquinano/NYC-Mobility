@@ -16,7 +16,7 @@
         "  blocking,\n",
         "  denominator_scope\n",
         "FROM\n",
-        "  `nyc-mobility`.nyc_quality.dq_rules\n",
+        "  `nyc_mobility`.nyc_quality.dq_rules\n",
         "ORDER BY\n",
         "  layer,\n",
         "  table_name,\n",
@@ -38,7 +38,7 @@
         "  threshold_pct,\n",
         "  status\n",
         "FROM\n",
-        "  `nyc-mobility`.nyc_quality.vw_latest_dq_results\n",
+        "  `nyc_mobility`.nyc_quality.vw_latest_dq_results\n",
         "ORDER BY\n",
         "  CASE status\n",
         "    WHEN 'FAIL' THEN 0\n",
@@ -76,8 +76,8 @@
         "    ELSE d.status\n",
         "  END AS severity\n",
         "FROM\n",
-        "  `nyc-mobility`.nyc_quality.vw_latest_dq_results d\n",
-        "    LEFT JOIN `nyc-mobility`.nyc_quality.dq_rules r\n",
+        "  `nyc_mobility`.nyc_quality.vw_latest_dq_results d\n",
+        "    LEFT JOIN `nyc_mobility`.nyc_quality.dq_rules r\n",
         "      ON d.layer = r.layer\n",
         "      AND d.table_name = r.table_name\n",
         "      AND d.check_name = r.check_name\n",
@@ -107,7 +107,7 @@
         "  overall_status,\n",
         "  finished_at\n",
         "FROM\n",
-        "  `nyc-mobility`.nyc_quality.dq_run_log\n",
+        "  `nyc_mobility`.nyc_quality.dq_run_log\n",
         "ORDER BY\n",
         "  run_ts DESC"
       ]
@@ -128,7 +128,7 @@
         "  overall_status,\n",
         "  finished_at\n",
         "FROM\n",
-        "  `nyc-mobility`.nyc_quality.vw_latest_dq_run\n",
+        "  `nyc_mobility`.nyc_quality.vw_latest_dq_run\n",
         "ORDER BY\n",
         "  layer"
       ]
@@ -146,7 +146,7 @@
         "  END AS rationale_tag,\n",
         "  layer\n",
         "FROM\n",
-        "  `nyc-mobility`.nyc_quality.dq_rules\n",
+        "  `nyc_mobility`.nyc_quality.dq_rules\n",
         "WHERE\n",
         "  layer IN ('bronze', 'silver', 'gold')"
       ]
@@ -158,8 +158,8 @@
         "SELECT\n",
         "  COUNT(*) AS blocking_failures\n",
         "FROM\n",
-        "  `nyc-mobility`.nyc_quality.vw_latest_dq_results d\n",
-        "    JOIN `nyc-mobility`.nyc_quality.dq_rules r\n",
+        "  `nyc_mobility`.nyc_quality.vw_latest_dq_results d\n",
+        "    JOIN `nyc_mobility`.nyc_quality.dq_rules r\n",
         "      ON d.layer = r.layer\n",
         "      AND d.table_name = r.table_name\n",
         "      AND d.check_name = r.check_name\n",
@@ -179,7 +179,7 @@
         "  checks_failed,\n",
         "  overall_status\n",
         "FROM\n",
-        "  `nyc-mobility`.nyc_quality.vw_latest_dq_run\n",
+        "  `nyc_mobility`.nyc_quality.vw_latest_dq_run\n",
         "WHERE\n",
         "  layer = 'gold'"
       ]
@@ -198,7 +198,7 @@
         "  threshold_pct,\n",
         "  status\n",
         "FROM\n",
-        "  `nyc-mobility`.nyc_quality.vw_latest_dq_results\n",
+        "  `nyc_mobility`.nyc_quality.vw_latest_dq_results\n",
         "WHERE\n",
         "  layer = 'gold'\n",
         "ORDER BY\n",
@@ -222,7 +222,7 @@
         "  threshold_pct,\n",
         "  status\n",
         "FROM\n",
-        "  `nyc-mobility`.nyc_quality.vw_latest_dq_results\n",
+        "  `nyc_mobility`.nyc_quality.vw_latest_dq_results\n",
         "WHERE\n",
         "  layer = 'gold'\n",
         "  AND check_category = 'at_rest_integrity'\n",
@@ -250,7 +250,7 @@
             "x": 0,
             "y": 0,
             "width": 12,
-            "height": 1
+            "height": 2
           }
         },
         {
@@ -291,7 +291,7 @@
           },
           "position": {
             "x": 0,
-            "y": 1,
+            "y": 2,
             "width": 3,
             "height": 2
           }
@@ -334,7 +334,7 @@
           },
           "position": {
             "x": 3,
-            "y": 1,
+            "y": 2,
             "width": 3,
             "height": 2
           }
@@ -377,7 +377,7 @@
           },
           "position": {
             "x": 6,
-            "y": 1,
+            "y": 2,
             "width": 3,
             "height": 2
           }
@@ -420,7 +420,7 @@
           },
           "position": {
             "x": 9,
-            "y": 1,
+            "y": 2,
             "width": 3,
             "height": 2
           }
@@ -488,7 +488,7 @@
           },
           "position": {
             "x": 0,
-            "y": 3,
+            "y": 4,
             "width": 6,
             "height": 6
           }
@@ -581,7 +581,7 @@
           },
           "position": {
             "x": 6,
-            "y": 3,
+            "y": 4,
             "width": 6,
             "height": 6
           }
