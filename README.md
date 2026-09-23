@@ -1,213 +1,313 @@
 # NYC Mobility Data Pipeline
 
-## 📌 Overview
-This project builds a scalable and repeatable data engineering pipeline that combines multiple NYC public datasets into a trusted mobility analytics dataset.
+An end-to-end data engineering pipeline that integrates **NYC Green Taxi trips, weather data, and taxi zone metadata** into trusted, analytics-ready datasets using **Databricks, Delta Lake, PySpark, SQL, and Medallion Architecture**.
 
-The pipeline integrates **taxi trips**, **weather conditions**, and **taxi zone metadata** into a unified mobility platform for analytical reporting and business insights.
+The project demonstrates production-oriented data engineering practices including **incremental ingestion, idempotent processing, deduplication, dimensional modeling, data quality validation, and CI/CD workflows**.
 
 ---
 
-## 📂 Repository Layout
-The source tree is domain-first and keeps Bronze, Silver, and Gold execution order within each domain.
+## 🏗️ Architecture
+
+![NYC Mobility Architecture](resources/images/architecture.png)
+
+The pipeline follows a **Bronze → Silver → Gold Medallion Architecture** implemented in Databricks.
+
+| Layer | Purpose |
+|---|---|
+| **Bronze** | Raw source ingestion with minimal transformation |
+| **Silver** | Cleaning, standardization, deduplication, and quality enforcement |
+| **Gold** | Analytics-ready fact and dimension tables |
+| **Quality** | Data quality and integrity validation across layers |
+
+### Unity Catalog
+
+The project is organized under the `nyc_mobility` catalog:
 
 ```text
-src/
-├── green_taxi/
-│   ├── bronze/
-│   ├── silver/
-│   └── gold/
-├── weather/
-│   ├── bronze/
-│   ├── silver/
-│   └── gold/
-├── taxi_zones/
-│   ├── bronze/
-│   ├── silver/
-│   └── gold/
-└── shared/
-    ├── 00_schema_setup.sql
-    ├── 01_bronze_tables.sql
-    ├── 02_silver_tables.sql
-    ├── 03_gold_tables.sql
-    └── 04_monitoring_tables.sql
-
-tests/
-docs/
-resources/
-databricks.yml
+nyc_mobility
+├── nyc_bronze
+├── nyc_silver
+├── nyc_gold
+└── nyc_quality
 ```
 
-- Each **domain folder** owns its Bronze, Silver, and Gold assets.  
-- The `src/shared` directory contains centralized schema and table creation scripts.  
+### Gold Data Model
 
----
-
-## 🏛 Architecture
-The pipeline follows the **Medallion Architecture** pattern:
+The analytics layer uses a dimensional model centered on taxi trips:
 
 ```text
-Source Data
-    ↓
-Bronze
-    - Raw ingestion
-    - Audit fields
-    - Minimal transformations
-    ↓
-Silver
-    - Data cleaning
-    - Standardization
-    - Deduplication
-    - Quality enforcement
-    ↓
-Gold
-    - Fact tables
-    - Dimension tables
-    - Analytics-ready datasets
+                 ┌─────────────┐
+                 │   dim_date  │
+                 └──────┬──────┘
+                        │
+┌──────────────┐   ┌────▼─────────────┐   ┌─────────────────┐
+│ dim_taxi_zone├──►│  fact_taxi_trip  │◄──┤  dim_weather    │
+└──────────────┘   └──────────────────┘   └─────────────────┘
 ```
-
----
-
-## 🎯 Why This Project?
-Urban mobility is influenced by many factors, including:
-
-- Weather conditions  
-- Geographic location  
-- Time of day  
-- Travel demand patterns  
-
-These datasets are typically siloed and cannot easily be analyzed together.  
-This project solves that by building a **unified data platform** that:
-
-- Consolidates multiple public mobility datasets  
-- Maintains data quality and consistency  
-- Supports repeatable execution  
-- Prevents duplicate records  
-- Produces analytics-ready datasets  
-
-### Example Questions Answered
-- **When and where is taxi demand highest?**  
-- **How does weather affect taxi demand?**  
-- **Which NYC locations show the strongest mobility activity?**
 
 ---
 
 ## 📊 Data Sources
 
-### NYC Green Taxi Trips
-- **Source:** NYC TLC Trip Record Data  
-- **Format:** Parquet  
-- **Acquisition:** File ingestion  
-- **Refresh:** Monthly  
-- **Contains:** Pickup/dropoff timestamps, passenger count, trip distance, fare info, pickup/dropoff zones  
-- Source Link [(nyc.gov in Bing)](https://www.bing.com/search?q="https%3A%2F%2Fwww.nyc.gov%2Fsite%2Ftlc%2Fabout%2Ftlc-trip-record-data.page")
+| Source | Format | Ingestion |
+|---|---|---|
+| **NYC TLC Green Taxi Trips** | Parquet | File-based ingestion |
+| **Open-Meteo Historical Weather** | JSON / REST API | API extraction |
+| **NYC Taxi Zone Lookup** | CSV | File ingestion |
+
+The datasets provide:
+
+- Taxi pickup and drop-off activity
+- Trip distance and passenger information
+- Fare and trip attributes
+- Geographic taxi zones
+- Temperature and precipitation
+- Historical weather conditions
+
+### Source Documentation
+
+- [NYC TLC Trip Record Data](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page)
+- [Open-Meteo Historical Weather API](https://open-meteo.com/en/docs/historical-weather-api)
+- [NYC Taxi Zone Lookup](https://s3.amazonaws.com/nyc-tlc/misc/taxi+_zone_lookup.csv)
 
 ---
 
-### Open-Meteo Historical Weather
-- **Source:** Open-Meteo Historical Weather API  
-- **Format:** JSON (REST API)  
-- **Acquisition:** API extraction  
-- **Contains:** Temperature, precipitation, weather conditions, daily observations  
-- **Notes:** Weather codes follow WMO standards  
-- [Source Link](https://open-meteo.com/en/docs/historical-weather-api)
+## 🔄 Pipeline Flow
+
+```text
+Source Data
+    │
+    ▼
+┌──────────────┐
+│    Bronze    │
+│ Raw Ingestion│
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│    Silver    │
+│ Clean +      │
+│ Standardize  │
+│ Deduplicate  │
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│     Gold     │
+│ Fact + Dim   │
+│ Tables       │
+└──────┬───────┘
+       │
+       ▼
+ Analytics / Dashboards
+```
+
+The pipeline is designed to be **repeatable and safe to rerun**, with controls for incremental processing, duplicate prevention, and data quality validation.
 
 ---
 
-### NYC Taxi Zones
-- **Source:** NYC Taxi Zone Lookup  
-- **Format:** CSV  
-- **Acquisition:** File ingestion  
-- **Contains:** Zone ID, Borough, Service Zone, Zone Name  
-- Source Link [(s3.amazonaws.com in Bing)](https://www.bing.com/search?q="https%3A%2F%2Fs3.amazonaws.com%2Fnyc-tlc%2Fmisc%2Ftaxi%2B_zone_lookup.csv")
+## ⚙️ Key Engineering Capabilities
+
+### Incremental & Repeatable Processing
+
+- Parameterized processing for time-based taxi data
+- Date-range extraction for weather data
+- Reloadable reference data
+- Idempotent pipeline execution
+- Duplicate prevention across repeated runs
+
+### Data Quality & Integrity
+
+- Validation across Bronze, Silver, and Gold
+- Schema and field-level checks
+- Deduplication controls
+- At-rest integrity validation
+- Monitoring tables for quality results
+
+### Analytics Modeling
+
+- Fact/dimension dimensional model
+- Conformed date and geographic dimensions
+- Weather dimension for mobility analysis
+- Analytics-ready Gold datasets
+
+### Deployment & Engineering Workflow
+
+- Databricks Asset Bundles (DAB)
+- GitHub-based development workflow
+- Pull request validation
+- Automated repository checks
+- Code formatting and linting
 
 ---
 
-## 🔄 Data Ingestion Strategy
+## 📁 Repository Structure
 
-| Source      | Arrival Method       | Change Detection       | Repeatability              |
-|-------------|----------------------|------------------------|----------------------------|
-| Green Taxi  | Monthly TLC files    | File-based monthly load | Parameterized execution    |
-| Weather     | Open-Meteo API       | Date-range extraction   | Same API requests rerun    |
-| Taxi Zones  | CSV lookup file      | Full refresh            | Reference data reloadable  |
+The repository uses a **domain-first source structure**, while maintaining Bronze/Silver/Gold processing within each domain.
+
+```text
+NYC-Mobility/
+│
+├── src/
+│   ├── green_taxi/
+│   │   ├── bronze/
+│   │   ├── silver/
+│   │   └── gold/
+│   │
+│   ├── weather/
+│   │   ├── bronze/
+│   │   ├── silver/
+│   │   └── gold/
+│   │
+│   ├── taxi_zones/
+│   │   ├── bronze/
+│   │   ├── silver/
+│   │   └── gold/
+│   │
+│   └── shared/
+│       ├── 00_schema_setup.sql
+│       ├── 01_bronze_tables.sql
+│       ├── 02_silver_tables.sql
+│       ├── 03_gold_tables.sql
+│       └── 04_monitoring_tables.sql
+│
+├── dashboards/
+├── docs/
+├── resources/
+├── tests/
+│
+├── .github/
+├── databricks.yml
+├── pyproject.toml
+└── README.md
+```
+
+Each domain owns its Bronze, Silver, and Gold processing logic, while `src/shared/` contains centralized schema, table, and monitoring definitions.
 
 ---
 
-## 📑 Documentation
-Detailed documentation lives in the `docs/` directory:
+## 🛠️ Technology Stack
+
+### Data Engineering
+
+- **Databricks**
+- **Delta Lake**
+- **PySpark**
+- **SQL**
+- **Unity Catalog**
+
+### Data Sources
+
+- **NYC TLC Trip Record Data**
+- **Open-Meteo Historical Weather API**
+- **NYC Taxi Zone Lookup**
+
+### Development & Quality
+
+- **GitHub**
+- **GitHub Actions**
+- **SQLFluff**
+- **Black**
+- **Flake8**
+- **isort**
+- **nbqa**
+- **nbstripout**
+
+---
+
+## 📈 Analytics Use Cases
+
+The resulting Gold datasets support analysis such as:
+
+- **Taxi demand by time and location**
+- **Weather impact on taxi activity**
+- **Mobility patterns across NYC**
+- **Data quality monitoring**
+
+Example analytical questions:
+
+> When and where is taxi demand highest?
+
+> How does weather affect taxi demand?
+
+> Which NYC locations show the strongest mobility activity?
+
+---
+
+## 📚 Documentation
+
+The README intentionally focuses on the **project overview, architecture, engineering approach, and implementation highlights**.
+
+Detailed design decisions and specifications are documented separately in [`docs/`](docs/):
 
 | Document | Purpose |
-|----------|---------|
-| 01_business_rules.md | Business assumptions & transformation rules |
-| 02_grain_definitions.md | Fact & dimension grain definitions |
-| 03_table_specs.md | Table specifications & data dictionary |
-| 04_data_model.md | ERD, schema design, modeling decisions |
-| 05_data_quality.md | Data quality framework & validation rules |
-| 06_engineering_standards.md | Repo standards, GitHub Actions, dev workflow |
+|---|---|
+| [`01_business_rules.md`](docs/01_business_rules.md) | Business assumptions and transformation rules |
+| [`02_grain_definitions.md`](docs/02_grain_definitions.md) | Fact and dimension grain definitions |
+| [`03_table_specs.md`](docs/03_table_specs.md) | Table specifications and data dictionary |
+| [`04_data_model.md`](docs/04_data_model.md) | ERD, schema design, and modeling decisions |
+| [`05_data_quality.md`](docs/05_data_quality.md) | Data quality framework and validation rules |
+| [`06_engineering_standards.md`](docs/06_engineering_standards.md) | Repository standards, GitHub Actions, and development workflow |
 
 ---
 
-## ⚙️ Development Workflow
-All changes follow a **pull request workflow**:
+## 🔀 Development Workflow
+
+Changes follow a pull request-based development workflow with automated validation:
 
 ```text
 Feature Branch
-    ↓
-Pull Request Opened
-    ↓
-auto-reviewer.yml
-    ↓
-Reviewer Assigned
-    ↓
-pr-checks.yml
-    ↓
-Repository Validation
-    ↓
+      │
+      ▼
+Pull Request
+      │
+      ▼
+Automated Checks
+      │
+      ├── Repository Validation
+      ├── SQL / Python Quality Checks
+      └── Workflow Validation
+      │
+      ▼
 Reviewer Approval
-    ↓
+      │
+      ▼
 Merge to Main
 ```
 
-Automation includes:
-- Automatic reviewer assignment  
-- Repository validation checks  
-- Branch protection rules  
-- Standardized code review process  
-
----
-
-## 🛠 Technology Stack
-
-### Data Processing
-- Databricks  
-- Delta Lake  
-- SQL  
-- PySpark  
-
-### Data Sources
-- NYC TLC Trip Records  
-- Open-Meteo Historical Weather API  
-- NYC Taxi Zone Lookup  
-
-### Development & Quality
-- GitHub  
-- GitHub Actions  
-- SQLFluff  
-- Black  
-- Flake8  
-- isort  
-- nbqa  
-- nbstripout  
+This keeps code changes reviewable and provides automated checks before changes reach the main branch.
 
 ---
 
 ## 📌 Project Status
-Current scope focuses on **validating the end-to-end architecture** using a limited initial dataset before expanding further.
 
-✅ Implemented:
-- Multi-source data ingestion  
-- Bronze, Silver, Gold Medallion layers  
-- Automated validation workflows  
-- Data quality monitoring  
-- Analytics-ready dimensional models  
-- GitHub-based collaboration and review workflows  
-```
+The current implementation focuses on validating the **end-to-end architecture and engineering patterns** using an initial dataset, with the repository structured to support further expansion.
+
+### Implemented
+
+- Multi-source data ingestion
+- Bronze, Silver, and Gold Medallion layers
+- Incremental and repeatable processing
+- Idempotent pipeline execution
+- Deduplication and standardization
+- Data quality validation
+- Dimensional data modeling
+- Unity Catalog organization
+- Databricks Asset Bundle deployment structure
+- GitHub Actions and repository validation workflow
+
+### Next Steps
+
+- Expand the initial dataset coverage
+- Extend analytical dashboards
+- Add further mobility data sources
+- Expand automated data quality monitoring
+- Increase test coverage as the pipeline grows
+
+---
+
+## 🎯 Project Goal
+
+NYC Mobility demonstrates how disparate public datasets can be transformed into a **reliable, governed, and analytics-ready data platform** using modern data engineering practices.
+
+The project emphasizes not only the final datasets, but also the engineering principles required to make pipelines **repeatable, maintainable, testable, and trustworthy**.
