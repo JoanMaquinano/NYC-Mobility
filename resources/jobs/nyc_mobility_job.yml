@@ -18,7 +18,7 @@ resources:
             file:
               path: ../../src/green_taxi/bronze/ingest_green_taxi.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
         - task_key: Taxi_Zones_Bronze
           depends_on:
@@ -27,7 +27,7 @@ resources:
             file:
               path: ../../src/taxi_zones/bronze/ingest_taxi_zones.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
         - task_key: Weather_Bronze
           depends_on:
@@ -38,7 +38,7 @@ resources:
             file:
               path: ../../src/weather/bronze/bronze_weather.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
         - task_key: Bronze_QC
           depends_on:
@@ -49,7 +49,7 @@ resources:
             file:
               path: ../../tests/02_bronze_all_qc.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
         - task_key: Green_Taxi_Silver
           depends_on:
@@ -58,7 +58,7 @@ resources:
             file:
               path: ../../src/green_taxi/silver/green_taxi_clean.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
         - task_key: Taxi_Zone_Silver
           depends_on:
@@ -67,7 +67,7 @@ resources:
             file:
               path: ../../src/taxi_zones/silver/taxi_zones_clean.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
         - task_key: Weather_Silver
           depends_on:
@@ -76,7 +76,7 @@ resources:
             file:
               path: ../../src/weather/silver/weather_clean.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
         - task_key: Silver_QC
           depends_on:
@@ -87,7 +87,7 @@ resources:
             file:
               path: ../../tests/03_silver_all_qc.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
         - task_key: Dim_Date
           depends_on:
@@ -96,7 +96,7 @@ resources:
             file:
               path: ../../src/weather/gold/dim_date.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
         - task_key: Dim_Taxi_Zone
           depends_on:
@@ -105,7 +105,7 @@ resources:
             file:
               path: ../../src/taxi_zones/gold/dim_taxi_zone.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
         - task_key: Dim_Weather
           depends_on:
@@ -114,7 +114,7 @@ resources:
             file:
               path: ../../src/weather/gold/dim_weather.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
         - task_key: Fact_Trip
           depends_on:
@@ -123,7 +123,7 @@ resources:
             file:
               path: ../../src/green_taxi/gold/fact_taxi_trip.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
         - task_key: Gold_QC
           depends_on:
@@ -136,7 +136,7 @@ resources:
             file:
               path: ../../tests/04_gold_all_qc.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
 
       queue:
         enabled: true

@@ -6,41 +6,41 @@ resources:
         - task_key: catalog_to_schema_setup
           sql_task:
             file:
-              path: /Workspace/Users/joan.maquinano@ftwfoundation.org/NYC-Mobility/src/shared/00_schema_setup.sql
+              path: ../../src/shared/00_schema_setup.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
         - task_key: bronze_tables_setup
           depends_on:
             - task_key: catalog_to_schema_setup
           sql_task:
             file:
-              path: /Workspace/Users/joan.maquinano@ftwfoundation.org/NYC-Mobility/src/shared/01_bronze_tables.sql
+              path: ../../src/shared/01_bronze_tables.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
         - task_key: silver_tables_setup
           depends_on:
             - task_key: bronze_tables_setup
           sql_task:
             file:
-              path: /Workspace/Users/joan.maquinano@ftwfoundation.org/NYC-Mobility/src/shared/02_silver_tables.sql
+              path: ../../src/shared/02_silver_tables.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
         - task_key: gold_tablels_setup
           depends_on:
             - task_key: silver_tables_setup
           sql_task:
             file:
-              path: /Workspace/Users/joan.maquinano@ftwfoundation.org/NYC-Mobility/src/shared/03_gold_tables.sql
+              path: ../../src/shared/03_gold_tables.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
         - task_key: monitorting_tables_setup
           depends_on:
             - task_key: gold_tablels_setup
           sql_task:
             file:
-              path: /Workspace/Users/joan.maquinano@ftwfoundation.org/NYC-Mobility/src/shared/04_monitoring_tables.sql
+              path: ../../src/shared/04_monitoring_tables.sql
               source: WORKSPACE
-            warehouse_id: 1c151e4beb523660
+            warehouse_id: ${var.warehouse_id}
       queue:
         enabled: true
       performance_target: PERFORMANCE_OPTIMIZED

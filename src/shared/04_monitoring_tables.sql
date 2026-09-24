@@ -1,4 +1,3 @@
-%sql
 -- Data Quality Setup (per batch)
 --
 --  **Run once.** v1 users: the ALTERs below are additive, nothing is dropped
@@ -23,8 +22,11 @@ CREATE TABLE IF NOT EXISTS dq_results (
     total_rows      BIGINT     COMMENT 'rows examined',
     failed_pct      DOUBLE     COMMENT '100 * failed_rows / total_rows',
     threshold_pct   DOUBLE     COMMENT 'tolerated failure rate; 0 means none tolerated',
-    status          STRING     COMMENT 'PASS | WARN | FAIL | SKIP'
-    -- threshold_pct is the FAIL line; warn_pct (added below) is the WARN line
+    status          STRING     COMMENT 'PASS | WARN | FAIL | SKIP',
+    -- threshold_pct is the FAIL line; warn_pct is the WARN line
+    batch_month     STRING     COMMENT 'YYYY-MM this check was scoped to',
+    min_failed_rows BIGINT     COMMENT 'at or below this many failed rows, never FAIL',
+    warn_pct        DOUBLE     COMMENT 'at or below this rate the check PASSes; above it WARNs'
 )
 USING DELTA
 COMMENT 'One row per data quality check per batch, across all layers.';
@@ -41,12 +43,6 @@ COMMENT 'One row per data quality check per batch, across all layers.';
 --                    "below this many rows it is a WARN regardless of the
 --                    percentage", so a rule can stay strict about RATE and
 --                    still not stop the pipeline over a single bad row.
-ALTER TABLE dq_results ADD COLUMNS (
-    batch_month     STRING COMMENT 'YYYY-MM this check was scoped to',
-    min_failed_rows BIGINT COMMENT 'at or below this many failed rows, never FAIL',
-    warn_pct        DOUBLE COMMENT 'at or below this rate the check PASSes; above it WARNs'
-);
-
 -- dq_run_log — one row per layer per run
 CREATE TABLE IF NOT EXISTS dq_run_log (
     run_id          STRING,
@@ -58,15 +54,12 @@ CREATE TABLE IF NOT EXISTS dq_run_log (
     checks_warned   INT,
     checks_failed   INT,
     overall_status  STRING     COMMENT 'FAIL if a blocking check failed, else WARN if any warned, else PASS',
-    finished_at     TIMESTAMP
+    finished_at     TIMESTAMP,
+    batch_month     STRING     COMMENT 'YYYY-MM this run covered',
+    checks_skipped  INT        COMMENT 'checks not evaluated because the batch was empty'
 )
 USING DELTA
 COMMENT 'Audit log: one row per layer per batch.';
-
-ALTER TABLE dq_run_log ADD COLUMNS (
-    batch_month     STRING COMMENT 'YYYY-MM this run covered',
-    checks_skipped  INT    COMMENT 'checks not evaluated because the batch was empty'
-);
 
 -- dq_rules — catalogue of rules and the reasoning behind each threshold
 CREATE TABLE IF NOT EXISTS dq_rules (
@@ -79,15 +72,12 @@ CREATE TABLE IF NOT EXISTS dq_rules (
     rationale        STRING  COMMENT 'basis tag plus why this rule and why this threshold',
     silver_action    STRING  COMMENT 'QUARANTINE | FLAG | IGNORE',
     blocking         BOOLEAN COMMENT 'TRUE if a FAIL on this rule stops the pipeline',
-    denominator_scope STRING
+    denominator_scope STRING,
+    min_failed_rows BIGINT COMMENT 'absolute floor that accompanies threshold_pct',
+    warn_pct        DOUBLE COMMENT 'lower of the two thresholds; below it the check PASSes'
 )
 USING DELTA
 COMMENT 'Catalogue of every data quality rule, with the reasoning behind each threshold.';
-
-ALTER TABLE dq_rules ADD COLUMNS (
-    min_failed_rows BIGINT COMMENT 'absolute floor that accompanies threshold_pct',
-    warn_pct        DOUBLE COMMENT 'lower of the two thresholds; below it the check PASSes'
-);
 
 
 -- ## Views
