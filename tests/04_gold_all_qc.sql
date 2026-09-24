@@ -10,7 +10,7 @@
 
 SET TIME ZONE 'America/New_York';
 
-USE CATALOG `nyc-mobility`;
+USE CATALOG nyc_mobility;
 
 
 DECLARE OR REPLACE VARIABLE v_run_id STRING;
