@@ -8,17 +8,18 @@
 -- | 3 | `weather_clean` | 25 |
 -- | 4 | reconciliation with Bronze | 5 |
 -- | 5 | join coverage, what Gold will actually resolve | 5 |
+--
 -- Then 6. Audit log · 7. Results · 8. Gate · 9. Afterwards.
 
 SET TIME ZONE 'America/New_York';
 USE CATALOG nyc_mobility;
-
 
 -- ## Parameters — the same two every other task takes
 -- | Parameter | Example | Also used by |
 -- |---|---|---|
 -- | `year_month`   | `2026-03`                | the Bronze and Silver MERGEs, Bronze QC |
 -- | `weather_file` | `weather_march_2026.csv` | the weather MERGE, Bronze QC |
+--
 -- Both optional. Left blank, the month comes from whatever preload decided
 -- and recorded in `dq_run_log`, so a run with no parameters still describes
 -- the batch that was actually loaded and every layer agrees on which one.
@@ -52,6 +53,7 @@ SET VAR v_weather_file = COALESCE(
            '_', substr(v_batch_month, 1, 4), '.csv'));
 
 -- ## taxi_zones_clean has no month in it
+--
 -- It is a full refresh of a 265-row lookup, so its results are keyed on the
 -- lookup file's version rather than the trip month -- the same key preload
 -- assigns. Inherited, not recomputed: two places deriving it is two places to
@@ -64,6 +66,7 @@ SET VAR v_zones_batch = COALESCE(
      ORDER  BY run_ts DESC
      LIMIT  1),
     'static-unknown');
+
 CREATE OR REPLACE TEMPORARY VIEW vw_batch_scope AS
           SELECT 'green_taxi_clean' AS table_name, v_batch_month AS batch_month
 UNION ALL SELECT 'weather_clean',                  v_batch_month
@@ -71,6 +74,10 @@ UNION ALL SELECT 'taxi_zones_clean',               v_zones_batch;
 
 
 -- ## Validate before checking anything
+--
+-- A typo like `2026-3` does not error on its own: it matches zero rows, every
+-- check SKIPs, and the run reads as almost clean. Silent and green is the
+-- worst failure mode a QC notebook has.
 SELECT CASE
     WHEN v_batch_month IS NULL
       THEN raise_error('No year_month given and no preload run found in '
@@ -91,7 +98,11 @@ SELECT v_run_id       AS run_id,
        v_zones_batch  AS zones_version;
 
 
--- ## Threshold policy 
+-- ## Threshold policy — three bands, a floor, and a second line
+--
+-- Identical to the Bronze notebook, so a rule means the same thing wherever
+-- it appears.
+--
 -- | Variable | Value | Meaning |
 -- |---|---|---|
 -- | `v_strict_pct`   | `0.0`   | must never happen: one occurrence corrupts a join or the grain, or the check is scalar |
@@ -101,6 +112,7 @@ SELECT v_run_id       AS run_id,
 -- | `v_min_rows`     | `5`     | under this many failing rows it is a WARN whatever the rate |
 --
 -- ### Why most of Silver sits at 0.0 and Bronze does not
+--
 -- Bronze measures DATA, which arrives imperfect, so its rules are rates.
 -- Most of Silver measures OUR CODE: a row labelled PASS while carrying an
 -- issue is not a tolerable rate of anything, it is a `CASE` that does not
@@ -111,8 +123,8 @@ SELECT v_run_id       AS run_id,
 -- The floor still applies to them. One row is a WARN, six is a FAIL, because
 -- "the derivation is broken" and "one row slipped through a boundary" deserve
 -- different reactions and a gate that fires on the second gets switched off.
-
--- The exceptions -- the parse checks
+--
+-- The exceptions -- the parse checks in section 3 -- are the one place Silver
 -- measures the source rather than itself, and they carry the 5/10 pair the
 -- Bronze cast checks use, for the same reason.
 
@@ -132,6 +144,12 @@ SET VAR v_cast_fail_pct = 10.0;
 
 
 -- ## Batch scope
+--
+-- Five views, and then nothing else in the notebook reads a full table. The
+-- Bronze views matter as much as the Silver ones: reconciliation compares one
+-- month against the same month, and comparing a month of Silver against every
+-- month of Bronze is how the first March Bronze run reported 79% of its rows
+-- missing.
 
 CREATE OR REPLACE TEMPORARY VIEW vw_batch_silver_taxi AS
 SELECT *
@@ -174,11 +192,14 @@ SELECT v_batch_month                                     AS batch_month,
 
 
 -- ## The blocking list
+--
 -- A gate is a claim that the data is unusable, not that it is imperfect. In
 -- Bronze the question was "can Silver fix it" and most row-level defects
 -- could wait. Here the answer is different: Silver IS the fixing step, so a
 -- rule it breaks has nothing downstream to catch it.
+--
 -- Two things still decide what belongs here:
+--
 --   1. **Is it our code or the data?** `pass_rows_carry_no_issues` can only
 --      fail if the `CASE` deriving `dq_status` is wrong. Gold filters on
 --      `dq_status`, so a broken derivation silently changes what Gold counts.
@@ -188,6 +209,7 @@ SELECT v_batch_month                                     AS batch_month,
 --      quarantined and was not is not either: it is in Gold, being counted.
 --
 -- ### Scoped by table
+--
 -- `(table, check)` pairs rather than bare names, for the reason Bronze needed
 -- them: `table_not_empty` and `dq_status_populated` are emitted by more than
 -- one table, and an empty weather_clean should not stop the trip path.
@@ -222,20 +244,32 @@ SELECT * FROM VALUES
 
     -- weather_clean -- weather_hour is what Gold joins on
     ('weather_clean', 'table_not_empty'),
-    ('weather_clean', 'weather_hour_not_null'),
     ('weather_clean', 'one_row_per_hour'),
     ('weather_clean', 'dq_status_populated'),
-    ('weather_clean', 'qc_array_not_null')
+    ('weather_clean', 'qc_array_not_null'),
+    ('weather_clean', 'dq_status_in_domain'),
+    ('weather_clean', 'qc_entries_carry_severity_prefix'),
+    ('weather_clean', 'pass_rows_carry_no_issues'),
+    ('weather_clean', 'fail_rows_carry_a_fail_issue'),
+    ('weather_clean', 'warn_rows_carry_only_warn_issues'),
+    -- The promise, not "the hour is never NULL". The cleaning KEEPS an
+    -- unparseable hour and labels it FAIL; what must hold is that every such
+    -- row carries the label, because Gold's valid view is what acts on it.
+    ('weather_clean', 'null_hours_are_quarantined')
 AS blocking(table_name, check_name);
 
 
 -- ## Which tables the run cannot proceed without
--- Mirrors the Bronze notebook
+--
+-- Mirrors the Bronze notebook. green_taxi_clean is the fact table: no trips,
+-- no Gold. Weather and zones enrich it, so a bad batch of either holds that
+-- source back from Gold and leaves the trip path alone.
 DECLARE OR REPLACE VARIABLE v_required_tables ARRAY<STRING>;
 SET VAR v_required_tables = array('green_taxi_clean');
 
 
 -- ## Clear-down
+--
 -- On (layer, batch_month) per table, not on run_id. A fresh uuid every run
 -- matches nothing, which is how the first Bronze version accumulated a new
 -- row set per execution while appearing to delete one. Re-running a month
@@ -259,7 +293,9 @@ WHERE layer = 'silver' AND batch_month = v_batch_month;
 
 
 -- # 1. green_taxi_clean
+--
 -- ## 1a. The classification must be internally consistent
+--
 -- `dq_status` is derived from `qc_error_descriptions` by one `CASE`. Four
 -- checks assert that the `CASE` actually holds on the rows in the table:
 --
@@ -386,8 +422,23 @@ s AS (
         SUM(CASE WHEN source_file IS NULL AND dq_status <> 'FAIL'
                  THEN 1 ELSE 0 END)                                          AS p_lineage,
 
-        -- the charge identity, per vendor, on the CLEANED amounts
-        SUM(CASE WHEN vendor_id IN (1, 2)
+        -- ## The charge identity is NOT the same identity for both vendors
+        --
+        -- One formula across vendors 1 and 2 reported 10.63% in the first
+        -- March run -- against 1.2-2.0% at source -- because vendor 1 does
+        -- not use vendor 2's identity:
+        --
+        -- | Vendor | total_amount contains |
+        -- |---|---|
+        -- | 2 -- Curb | everything, including the three surcharges |
+        -- | 1 -- Creative Mobile | fare + extra + mta_tax + tip + tolls. The surcharges are itemised but not added in |
+        --
+        -- So the combined check failed on essentially EVERY vendor-1 row
+        -- (~3,700 of 4,146) and the number said nothing about data quality.
+        -- Bronze and preload have split this by vendor from the start; this
+        -- is Silver catching up, each measured against its own row count so a
+        -- real problem in the smaller vendor is not diluted away.
+        SUM(CASE WHEN vendor_id = 2
                   AND ABS(COALESCE(fare_amount, 0) + COALESCE(extra, 0)
                         + COALESCE(mta_tax, 0) + COALESCE(tip_amount, 0)
                         + COALESCE(tolls_amount, 0)
@@ -395,8 +446,15 @@ s AS (
                         + COALESCE(congestion_surcharge, 0)
                         + COALESCE(cbd_congestion_fee, 0)
                         - COALESCE(total_amount, 0)) > 0.01
-                 THEN 1 ELSE 0 END)                                          AS b_residual,
-        SUM(CASE WHEN vendor_id IN (1, 2) THEN 1 ELSE 0 END)                 AS n_v1v2,
+                 THEN 1 ELSE 0 END)                                          AS b_residual_v2,
+        SUM(CASE WHEN vendor_id = 2 THEN 1 ELSE 0 END)                       AS n_v2,
+        SUM(CASE WHEN vendor_id = 1
+                  AND ABS(COALESCE(fare_amount, 0) + COALESCE(extra, 0)
+                        + COALESCE(mta_tax, 0) + COALESCE(tip_amount, 0)
+                        + COALESCE(tolls_amount, 0)
+                        - COALESCE(total_amount, 0)) > 0.01
+                 THEN 1 ELSE 0 END)                                          AS b_residual_v1,
+        SUM(CASE WHEN vendor_id = 1 THEN 1 ELSE 0 END)                       AS n_v1,
 
         SUM(CASE WHEN dq_status = 'FAIL' THEN 1 ELSE 0 END)                  AS b_quarantined,
         SUM(CASE WHEN dq_status = 'WARN' THEN 1 ELSE 0 END)                  AS b_warned
@@ -432,7 +490,10 @@ checks AS (
     UNION ALL SELECT 'consistency',  'out_of_era_pickups_are_quarantined', v_strict_pct, p_era,      total_rows FROM s
     UNION ALL SELECT 'consistency',  'untraceable_rows_are_quarantined',   v_strict_pct, p_lineage,  total_rows FROM s
 
-    UNION ALL SELECT 'business',     'charges_reconcile_by_vendor', v_tol_pct, b_residual, n_v1v2 FROM s
+    -- Same names as Bronze and preload, so the three layers line up in the
+    -- dashboard and a rate that jumps between them is visible as a jump.
+    UNION ALL SELECT 'business',     'total_equals_sum_of_charges_v2', v_tol_pct, b_residual_v2, n_v2 FROM s
+    UNION ALL SELECT 'business',     'total_equals_sum_of_charges_v1', v_tol_pct, b_residual_v1, n_v1 FROM s
     -- The aggregate limit. Every per-check threshold asks "is this rule
     -- violated too often". Only this one asks "are we excluding so much that
     -- the answer stops being about New York taxis" -- ten rules each
@@ -480,7 +541,6 @@ FROM (
 
 
 -- # 2. taxi_zones_clean
---
 -- A full refresh of a 265-row lookup, so it is not scoped to a month -- its
 -- results carry the lookup file's version key instead. Identical results
 -- across months are the expected outcome, not duplication, and a second
@@ -604,11 +664,45 @@ WITH
 -- absence. A value that was already blank in Bronze was never Silver's to
 -- lose.
 src AS (
+    SELECT COUNT(*) AS n_rows FROM vw_batch_bronze_weather
+),
+-- ## A parse failure is not the same as a value the source never sent
+--
+-- Counting NULLs in Silver alone conflates the two: a blank cell in the CSV
+-- and a value that would not convert both arrive as NULL, and only the second
+-- is a loss. The cleaning notebook draws this distinction itself -- it keeps
+-- raw_* copies so its WARN rules can say "present and did not parse" -- so
+-- the check has to draw it too, or it reports the source's gaps as the
+-- pipeline's failures.
+--
+-- Joined on `date` rather than the parsed hour, because the hour is the thing
+-- that might not have parsed. Bronze is already one row per date (its own
+-- MERGE deduplicates on it), so this cannot fan out.
+parse_loss AS (
     SELECT
-        COUNT(*)                                                             AS n_rows,
-        SUM(CASE WHEN try_cast(temperature_2m AS DOUBLE) IS NULL THEN 1 ELSE 0 END) AS n_temp_unusable,
-        SUM(CASE WHEN try_cast(rain           AS DOUBLE) IS NULL THEN 1 ELSE 0 END) AS n_rain_unusable
-    FROM vw_batch_bronze_weather
+        COUNT(*) AS n_compared,
+        SUM(CASE WHEN NULLIF(trim(b.temperature_2m), '') IS NOT NULL
+                  AND s.temperature_2m IS NULL THEN 1 ELSE 0 END)            AS p_temp,
+        SUM(CASE WHEN NULLIF(trim(b.apparent_temperature), '') IS NOT NULL
+                  AND s.apparent_temperature IS NULL THEN 1 ELSE 0 END)      AS p_apparent,
+        SUM(CASE WHEN NULLIF(trim(b.precipitation_probability), '') IS NOT NULL
+                  AND s.precipitation_probability IS NULL THEN 1 ELSE 0 END) AS p_prob,
+        SUM(CASE WHEN NULLIF(trim(b.rain), '') IS NOT NULL
+                  AND s.rain IS NULL THEN 1 ELSE 0 END)                      AS p_rain,
+        SUM(CASE WHEN NULLIF(trim(b.cloud_cover), '') IS NOT NULL
+                  AND s.cloud_cover IS NULL THEN 1 ELSE 0 END)               AS p_cloud,
+        SUM(CASE WHEN NULLIF(trim(b.visibility), '') IS NOT NULL
+                  AND s.visibility IS NULL THEN 1 ELSE 0 END)                AS p_vis,
+        SUM(CASE WHEN NULLIF(trim(b.wind_speed_10m), '') IS NOT NULL
+                  AND s.wind_speed_10m IS NULL THEN 1 ELSE 0 END)            AS p_wind,
+        SUM(CASE WHEN NULLIF(trim(b.wind_gusts_10m), '') IS NOT NULL
+                  AND s.wind_gusts_10m IS NULL THEN 1 ELSE 0 END)            AS p_gusts,
+        SUM(CASE WHEN NULLIF(trim(b.weather_code), '') IS NOT NULL
+                  AND s.weather_code IS NULL THEN 1 ELSE 0 END)              AS p_code,
+        SUM(CASE WHEN NULLIF(trim(b.`date`), '') IS NOT NULL
+                  AND s.weather_hour IS NULL THEN 1 ELSE 0 END)              AS p_hour
+    FROM       vw_batch_silver_weather s
+    JOIN       vw_batch_bronze_weather b ON b.`date` = s.`date`
 ),
 -- Days the loaded months should contain, so a gap is a number rather than a
 -- silence. A month needs two distinct days present before it counts as
@@ -659,16 +753,26 @@ w AS (
         -- duplicate hour fans out the trip-to-weather join in Gold.
         COUNT(weather_hour) - COUNT(DISTINCT weather_hour)                 AS u_dupes,
 
-        -- parse fidelity
-        SUM(CASE WHEN temperature_2m IS NULL THEN 1 ELSE 0 END)            AS p_temp,
-        SUM(CASE WHEN apparent_temperature IS NULL THEN 1 ELSE 0 END)      AS p_apparent,
-        SUM(CASE WHEN precipitation_probability IS NULL THEN 1 ELSE 0 END) AS p_prob,
-        SUM(CASE WHEN rain           IS NULL THEN 1 ELSE 0 END)            AS p_rain,
-        SUM(CASE WHEN cloud_cover    IS NULL THEN 1 ELSE 0 END)            AS p_cloud,
-        SUM(CASE WHEN visibility     IS NULL THEN 1 ELSE 0 END)            AS p_vis,
-        SUM(CASE WHEN wind_speed_10m IS NULL THEN 1 ELSE 0 END)            AS p_wind,
-        SUM(CASE WHEN wind_gusts_10m IS NULL THEN 1 ELSE 0 END)            AS p_gusts,
-        SUM(CASE WHEN weather_code   IS NULL THEN 1 ELSE 0 END)            AS p_code,
+        -- ## The promise, as in green_taxi_clean
+        --
+        -- The cleaning keeps an unparseable hour rather than dropping it, and
+        -- labels it FAIL. So "weather_hour is never NULL" is the wrong
+        -- assertion -- it would fail on a row the pipeline handled correctly.
+        -- The right one is that every NULL hour carries the FAIL label, which
+        -- is what Gold's valid view relies on.
+        SUM(CASE WHEN weather_hour IS NULL AND dq_status <> 'FAIL'
+                 THEN 1 ELSE 0 END)                                        AS p_null_hour,
+        -- Every entry must carry a severity, same as green_taxi. A forgotten
+        -- prefix silently downgrades a FAIL row to WARN.
+        SUM(CASE WHEN qc_error_descriptions IS NOT NULL
+                  AND size(filter(qc_error_descriptions,
+                                  x -> NOT startswith(x, 'FAIL:')
+                                   AND NOT startswith(x, 'WARN:'))) > 0
+                 THEN 1 ELSE 0 END)                                        AS v_prefix,
+        SUM(CASE WHEN dq_status = 'WARN'
+                  AND (size(qc_error_descriptions) = 0
+                    OR exists(qc_error_descriptions, x -> startswith(x, 'FAIL:')))
+                 THEN 1 ELSE 0 END)                                        AS x_warn_wrong,
 
         -- plausibility of the typed values
         SUM(CASE WHEN temperature_2m IS NOT NULL
@@ -708,7 +812,8 @@ w AS (
 checks AS (
     SELECT 'completeness' AS check_category, 'table_not_empty' AS check_name,
            v_strict_pct AS threshold_pct, t_empty AS failed_rows, 1 AS total_rows FROM w
-    UNION ALL SELECT 'completeness', 'weather_hour_not_null',  v_strict_pct, c_hour,       total_rows FROM w
+    UNION ALL SELECT 'consistency',  'null_hours_are_quarantined', v_strict_pct, p_null_hour, total_rows FROM w
+    UNION ALL SELECT 'completeness', 'weather_hour_populated', v_advisory_pct, c_hour,     total_rows FROM w
     UNION ALL SELECT 'completeness', 'dq_status_populated',    v_strict_pct, c_status,     total_rows FROM w
     UNION ALL SELECT 'completeness', 'qc_array_not_null',      v_strict_pct, c_qc_array,   total_rows FROM w
     UNION ALL SELECT 'completeness', 'silver_at_recorded',     v_strict_pct, c_silver_at,  total_rows FROM w
@@ -716,15 +821,20 @@ checks AS (
 
     UNION ALL SELECT 'uniqueness',   'one_row_per_hour',       v_strict_pct, u_dupes,      total_rows FROM w
 
-    UNION ALL SELECT 'validity',     'temperature_parsed',       v_cast_fail_pct, p_temp,     total_rows FROM w
-    UNION ALL SELECT 'validity',     'apparent_temp_parsed',     v_cast_fail_pct, p_apparent, total_rows FROM w
-    UNION ALL SELECT 'validity',     'precip_probability_parsed',v_cast_fail_pct, p_prob,     total_rows FROM w
-    UNION ALL SELECT 'validity',     'rain_parsed',              v_cast_fail_pct, p_rain,     total_rows FROM w
-    UNION ALL SELECT 'validity',     'cloud_cover_parsed',       v_cast_fail_pct, p_cloud,    total_rows FROM w
-    UNION ALL SELECT 'validity',     'visibility_parsed',        v_cast_fail_pct, p_vis,      total_rows FROM w
-    UNION ALL SELECT 'validity',     'wind_speed_parsed',        v_cast_fail_pct, p_wind,     total_rows FROM w
-    UNION ALL SELECT 'validity',     'wind_gusts_parsed',        v_cast_fail_pct, p_gusts,    total_rows FROM w
-    UNION ALL SELECT 'validity',     'weather_code_parsed',      v_cast_fail_pct, p_code,     total_rows FROM w
+    -- Measured against the source, not against Silver's own NULLs. The
+    -- denominator is the rows that could be compared.
+    UNION ALL SELECT 'validity', 'temperature_parsed',        v_cast_fail_pct, (SELECT p_temp     FROM parse_loss), (SELECT n_compared FROM parse_loss) FROM w
+    UNION ALL SELECT 'validity', 'apparent_temp_parsed',      v_cast_fail_pct, (SELECT p_apparent FROM parse_loss), (SELECT n_compared FROM parse_loss) FROM w
+    UNION ALL SELECT 'validity', 'precip_probability_parsed', v_cast_fail_pct, (SELECT p_prob     FROM parse_loss), (SELECT n_compared FROM parse_loss) FROM w
+    UNION ALL SELECT 'validity', 'rain_parsed',               v_cast_fail_pct, (SELECT p_rain     FROM parse_loss), (SELECT n_compared FROM parse_loss) FROM w
+    UNION ALL SELECT 'validity', 'cloud_cover_parsed',        v_cast_fail_pct, (SELECT p_cloud    FROM parse_loss), (SELECT n_compared FROM parse_loss) FROM w
+    UNION ALL SELECT 'validity', 'visibility_parsed',         v_cast_fail_pct, (SELECT p_vis      FROM parse_loss), (SELECT n_compared FROM parse_loss) FROM w
+    UNION ALL SELECT 'validity', 'wind_speed_parsed',         v_cast_fail_pct, (SELECT p_wind     FROM parse_loss), (SELECT n_compared FROM parse_loss) FROM w
+    UNION ALL SELECT 'validity', 'wind_gusts_parsed',         v_cast_fail_pct, (SELECT p_gusts    FROM parse_loss), (SELECT n_compared FROM parse_loss) FROM w
+    UNION ALL SELECT 'validity', 'weather_code_parsed',       v_cast_fail_pct, (SELECT p_code     FROM parse_loss), (SELECT n_compared FROM parse_loss) FROM w
+    UNION ALL SELECT 'validity', 'hour_parsed',               v_strict_pct,    (SELECT p_hour     FROM parse_loss), (SELECT n_compared FROM parse_loss) FROM w
+    UNION ALL SELECT 'validity', 'qc_entries_carry_severity_prefix', v_strict_pct, v_prefix, total_rows FROM w
+    UNION ALL SELECT 'consistency', 'warn_rows_carry_only_warn_issues', v_strict_pct, x_warn_wrong, total_rows FROM w
 
     UNION ALL SELECT 'validity',     'temperature_plausible',      v_tol_pct, v_temp,  total_rows FROM w
     UNION ALL SELECT 'validity',     'rain_not_negative',          v_tol_pct, v_rain,  total_rows FROM w
@@ -734,7 +844,10 @@ checks AS (
     UNION ALL SELECT 'validity',     'hour_within_covered_months', v_advisory_pct, v_window, total_rows FROM w
 
     UNION ALL SELECT 'consistency',  'gusts_at_least_wind_speed',    v_tol_pct,    v_gust,          total_rows FROM w
-    UNION ALL SELECT 'consistency',  'description_known_for_code',   v_strict_pct, x_desc_unknown,  total_rows FROM w
+    -- Tolerated, not absolute: the cleaning already WARNs on an unknown WMO
+    -- code and keeps the row. A code outside the CASE is the source using a
+    -- value we have not mapped -- data, not a broken transformation.
+    UNION ALL SELECT 'consistency',  'description_known_for_code',   v_tol_pct,    x_desc_unknown,  total_rows FROM w
     UNION ALL SELECT 'consistency',  'description_matches_code',     v_strict_pct, x_desc_mismatch, total_rows FROM w
     UNION ALL SELECT 'consistency',  'pass_rows_carry_no_issues',    v_strict_pct, x_pass_with_issues, total_rows FROM w
     UNION ALL SELECT 'consistency',  'fail_rows_carry_a_fail_issue', v_strict_pct, x_fail_no_reason,   total_rows FROM w
@@ -765,7 +878,7 @@ FROM (
     SELECT c.*,
            CASE WHEN c.total_rows <= 1                       THEN 0
                 WHEN c.check_name IN ('one_row_per_hour',
-                                      'weather_hour_not_null') THEN 0
+                                      'hour_parsed')          THEN 0
                 ELSE v_min_rows END AS min_failed_rows,
            -- Only the parse checks get a warn band. Everything else in this
            -- section should be at zero, so any failure is at least a WARN.
@@ -892,9 +1005,6 @@ FROM (
 
 
 -- # 5. Join coverage — what Gold will actually resolve
---
--- The most useful checks in the notebook, because they predict a failure that
--- never raises an error.
 --
 -- Every dimension in Gold has an Unknown member keyed `-1`, so an
 -- unresolvable foreign key does not drop the trip -- it lands in a bucket
@@ -1088,7 +1198,6 @@ WHERE  d.layer = 'silver' AND d.check_category <> 'gate';
 
 
 -- # 7. Results — this batch only
---
 -- Every query here joins vw_batch_scope, so it shows one month of
 -- green_taxi_clean and weather_clean plus the current version of
 -- taxi_zones_clean. The table underneath still holds every batch ever
@@ -1140,7 +1249,6 @@ ORDER  BY failed_rows DESC;
 
 
 -- # 8. Gate — per table
---
 -- A table is STOPPED when either is true of it:
 --
 -- | Trigger | Meaning |
@@ -1152,7 +1260,6 @@ ORDER  BY failed_rows DESC;
 -- of trouble adding up to a stop is a stop no single source deserved.
 --
 -- ### Only a required table raises
---
 -- Every table gets a verdict; only `v_required_tables` halts the run. A bad
 -- weather batch therefore stops weather -> Gold and lets the trip path
 -- continue.
@@ -1169,33 +1276,20 @@ ORDER  BY failed_rows DESC;
 --       AND  batch_month = :year_month
 --       AND  table_name  = 'green_taxi_clean'
 --       AND  check_name  = 'batch_cleared_for_gold';
---
--- They are written after section 6, so they do not inflate the audit counts.
 
--- TEMPORARY -- report-only mode.
---
+-- Enforcement switch.
 -- FALSE: verdicts are still computed, written and displayed, but the notebook
 -- does not raise, so the job carries on to Gold. TRUE: a stopped required
 -- table raises as designed.
---
--- One line so that restoring enforcement is one edit and a grep for
--- v_gate_enforce finds it. Set it back to TRUE once the named failures are
--- resolved -- a gate left in report-only mode indefinitely is not a gate.
+
 DECLARE OR REPLACE VARIABLE v_gate_enforce BOOLEAN;
-SET VAR v_gate_enforce = FALSE;
+SET VAR v_gate_enforce = TRUE;
 
 DECLARE OR REPLACE VARIABLE v_max_total_failures INT;
 SET VAR v_max_total_failures = 5;
 
 
 -- ### The blocking list has to be checked against reality
---
--- A pair in that list that no check ever emits is inert: it matches nothing,
--- so the gate neither blocks nor complains. That is what makes it dangerous
--- -- the list reads like a guarantee, and the next person to rename a check
--- turns one of those guarantees off without touching the gate. The Bronze
--- gate carried four such names for weeks.
---
 -- Anything returned below is a guarantee this gate is making and the notebook
 -- never produces. Expect zero rows.
 SELECT b.table_name, b.check_name AS blocking_pair_never_produced
@@ -1255,6 +1349,7 @@ SELECT v_run_id, v_run_ts, 'silver', table_name,
        batch_month, 0, 0.0
 FROM   vw_silver_gate;
 
+
 -- ### Raise, but only for a required table
 DECLARE OR REPLACE VARIABLE v_stopped_required STRING;
 DECLARE OR REPLACE VARIABLE v_stopped_optional STRING;
@@ -1288,7 +1383,6 @@ SELECT CASE
     ELSE CONCAT('Silver DQ gate PASSED for ', v_batch_month,
                 ' -- every table cleared')
 END AS gate;
-
 -- A pass with non-blocking failures recorded is a normal, honest outcome.
 -- Read them here and decide whether each is a threshold to measure or a
 -- defect to fix:
@@ -1301,7 +1395,6 @@ ORDER  BY failed_pct DESC;
 
 
 -- # 9. Afterwards
-
 SELECT reason, COUNT(*) AS trips
 FROM  (SELECT explode(filter(qc_error_descriptions, x -> startswith(x, 'FAIL:'))) AS reason
        FROM   vw_batch_silver_taxi
@@ -1317,7 +1410,9 @@ FROM   vw_batch_silver_taxi
 GROUP  BY dq_status
 ORDER  BY trips DESC;
 
--- One row per month
+-- One row per month, the headline. This is the per-month dashboard. The
+-- static zone versions are excluded: they are not months and would sort in
+-- among them.
 SELECT batch_month,
        MAX(run_ts)                                      AS last_checked,
        COUNT(*)                                         AS checks,
@@ -1331,6 +1426,9 @@ GROUP  BY batch_month
 ORDER  BY batch_month;
 
 -- Has a check moved between months?
+-- Comparing months rather than runs is the useful question. Two runs of the
+-- same month should be identical -- that is the idempotency test, and LAG
+-- over run_ts answered it with a row of zeroes. 
 SELECT table_name, check_name, batch_month, failed_pct, status,
        LAG(failed_pct) OVER (PARTITION BY table_name, check_name ORDER BY batch_month) AS previous_month_pct,
        ROUND(failed_pct - LAG(failed_pct) OVER (PARTITION BY table_name, check_name ORDER BY batch_month), 4) AS change
@@ -1338,10 +1436,7 @@ FROM   nyc_quality.vw_dq_by_month
 WHERE  layer = 'silver' AND batch_month NOT LIKE 'static-%'
 ORDER  BY table_name, check_name, batch_month;
 
--- Checks that have never once passed, across every month loaded so far. A
--- rule that is always red is either a real standing defect or a rule that
--- does not describe this transformation. Either way it needs a decision, not
--- another month of being ignored.
+-- Checks that have never once passed, across every month loaded so far. 
 SELECT table_name, check_name,
        COUNT(*)        AS months_checked,
        MAX(failed_pct) AS worst_pct,
@@ -1353,8 +1448,7 @@ HAVING SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) = 0
    AND SUM(CASE WHEN status = 'SKIP' THEN 1 ELSE 0 END) = 0
 ORDER  BY worst_pct DESC;
 
--- The latest run of every layer side by side: the whole pipeline's quality
--- position in one row each.
+-- The latest run of every layer side by side
 SELECT layer, batch_month, overall_status, checks_run, checks_passed,
        checks_warned, checks_failed, checks_skipped, run_ts
 FROM   nyc_quality.vw_latest_dq_run
