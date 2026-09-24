@@ -1,4 +1,3 @@
-%sql
 -- Data Quality — Silver
 -- Sections
 -- | § | Covers | Checks |
