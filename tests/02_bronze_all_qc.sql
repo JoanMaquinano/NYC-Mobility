@@ -1,4 +1,3 @@
-%sql
 -- Data Quality- Bronze
 -- Sections
 -- | § | Covers | Checks |
