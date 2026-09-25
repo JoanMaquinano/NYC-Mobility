@@ -1,6 +1,6 @@
 [sqlfluff]
 dialect = databricks
-templater = python
+templater = placeholder
 max_line_length = 120
 
 [sqlfluff:indentation]
