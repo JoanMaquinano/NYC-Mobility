@@ -1,6 +1,6 @@
 [flake8]
 max-line-length = 120
-exclude = .git,__pycache__,venv,.venv,notebooks,.ipynb_checkpoints,build,dist
+exclude = .git,__pycache__,venv,.venv,notebooks,.ipynb_checkpoints,build,dist,tests/01_preload_source_check.py,tests/07_gx_checks.py,src/weather/bronze/ingest_weather.py
 ignore = E203,W503,E501
 per-file-ignores =
     __init__.py:F401

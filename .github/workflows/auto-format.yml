@@ -3,7 +3,7 @@ name: Auto Format & Commit
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    branches: [main, develop]
+    branches: [main, develop, feature/staging-part-2]
 
 permissions:
   contents: write
@@ -35,33 +35,27 @@ jobs:
 
       - name: Run SQLFluff fix
         run: |
-          sqlfluff fix --dialect databricks . --force || true
-        continue-on-error: true
+          sqlfluff fix --dialect databricks . --force
 
       - name: Run black formatter
         run: |
-          black . --line-length 120 || true
-        continue-on-error: true
+          black . --line-length 120
 
       - name: Run isort
         run: |
-          isort . --profile black || true
-        continue-on-error: true
+          isort . --profile black
 
       - name: Format Jupyter notebooks with black
         run: |
-          nbqa black . --line-length 120 --exclude notebooks/,venv/ || true
-        continue-on-error: true
+          nbqa black . --line-length 120 --exclude notebooks/,venv/
 
       - name: Sort imports in Jupyter notebooks with isort
         run: |
-          nbqa isort . --profile black --exclude notebooks/,venv/ || true
-        continue-on-error: true
+          nbqa isort . --profile black --exclude notebooks/,venv/
 
       - name: Strip notebook outputs
         run: |
-          nbstripout **/*.ipynb || true
-        continue-on-error: true
+          find . -type f -name "*.ipynb" -not -path "./.git/*" -print0 | xargs -0 -r nbstripout
 
       - name: Commit changes if any
         uses: stefanzweifel/git-auto-commit-action@v5
@@ -84,7 +78,6 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const fs = require('fs');
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,

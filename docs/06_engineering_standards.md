@@ -530,4 +530,5 @@ Deploy / Execute Workflow
 - All files follow the snake case naming convention.
 - Pull Requests are required for all repository changes.
 - GitHub Actions automate reviewer assignment and repository validation.
+- Python quality checks use the repository's pinned Black and isort configuration.
 - Data quality validation must execute before publishing Gold-layer outputs.

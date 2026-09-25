@@ -29,10 +29,13 @@
 # dashboard and `vw_dq_by_month` pick these up with no change — a check that
 # moves from Bronze to preload keeps its history instead of restarting it.
 
-from pyspark.sql import functions as F
+import re
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-import uuid, re
+
+from preload_logic import MONTH_NAMES, choose_batch_month, weather_filename, weather_month
+from pyspark.sql import functions as F
 
 VOLUME = "/Volumes/workspace/default/ftw-b12-de/groups/week-08/group-d"
 TAXI_DIR = f"{VOLUME}/green-taxi"
@@ -71,21 +74,6 @@ spark.sql("SET TIME ZONE 'UTC'")
 #
 # Take the OLDEST of what is outstanding and the pipeline walks March, April,
 # May in order, one per run, however far ahead the downloads have got.
-
-MONTH_NAMES = [
-    "january",
-    "february",
-    "march",
-    "april",
-    "may",
-    "june",
-    "july",
-    "august",
-    "september",
-    "october",
-    "november",
-    "december",
-]
 
 # Named `year_month` to match the ingestion notebook and the Bronze/Silver
 # checks, so one job parameter drives every task instead of each one having
@@ -147,22 +135,14 @@ restated = sorted(
     m for m, t in already.items() if t is not None and m in landed and landed[m] > int(t.timestamp() * 1000)
 )
 
-if PARAM_MONTH:
-    if not re.fullmatch(r"\d{4}-\d{2}", PARAM_MONTH) or not 1 <= int(PARAM_MONTH[5:]) <= 12:
-        raise ValueError(f"year_month must be YYYY-MM (e.g. 2026-03), got: {PARAM_MONTH!r}")
-    BATCH_MONTH, MONTH_SOURCE = PARAM_MONTH, "widget"
-elif pending:
-    BATCH_MONTH, MONTH_SOURCE = pending[0], f"next unprocessed of {len(pending)}"
-else:
-    # Everything landed is loaded. Re-check the newest month rather than
-    # exiting quietly: the checks replace their own rows, so a re-run is the
-    # idempotency test, and a green run that checked nothing is too easy to
-    # mistake for a green run that checked something.
-    BATCH_MONTH, MONTH_SOURCE = max(landed), "re-check (nothing outstanding)"
+try:
+    BATCH_MONTH, MONTH_SOURCE = choose_batch_month(PARAM_MONTH, set(landed), set(already))
+except ValueError as exc:
+    raise ValueError(f"{exc}: {PARAM_MONTH!r}") from exc
 
 YEAR, MONTH_NUM = BATCH_MONTH.split("-")
 TAXI_FILE = f"green_tripdata_{BATCH_MONTH}.parquet"
-WEATHER_FILE = f"weather_{MONTH_NAMES[int(MONTH_NUM) - 1]}_{YEAR}.csv"
+WEATHER_FILE = weather_filename(BATCH_MONTH)
 
 RUN_ID = str(uuid.uuid4())
 RUN_TS = datetime.now()
@@ -178,8 +158,9 @@ if restated:
 weather_months = set()
 for name in list_names(WEATHER_DIR):
     m = re.search(r"weather_([a-z]+)_(\d{4})", name.lower())
-    if m and m.group(1) in MONTH_NAMES:
-        weather_months.add(f"{m.group(2)}-{MONTH_NAMES.index(m.group(1)) + 1:02d}")
+    month = weather_month(name)
+    if month:
+        weather_months.add(month)
 
 print(f"taxi files   : {sorted(landed)}")
 print(f"weather files: {sorted(weather_months) or '(none)'}")
@@ -746,7 +727,7 @@ print(f"weather: {len(weather_checks)} | taxi_zones: {len(zone_checks)} row-leve
 # `dq_results` row; checked first, it is an ordinary recorded FAIL with a
 # name, and the run log still describes the batch.
 
-from pyspark.sql.types import StringType, StructType, StructField
+from pyspark.sql.types import StringType, StructField, StructType
 
 
 def columns_used(check, candidates):
@@ -918,7 +899,7 @@ print(f"\n{len(RESULTS)} checks recorded")
 # future `ALTER TABLE ADD COLUMNS` in the setup notebook does not silently
 # shift every value one place to the left.
 
-from pyspark.sql.types import StructType, StructField, StringType, LongType, DoubleType, TimestampType
+from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType, TimestampType
 
 # Explicit schema rather than inference. failed_pct is None whenever a check
 # had no rows to look at, and if the first dict Spark sees carries that None
