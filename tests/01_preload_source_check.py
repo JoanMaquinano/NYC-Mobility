@@ -44,7 +44,7 @@ RESULTS_TABLE = f"{CATALOG}.nyc_quality.dq_results"
 RUNLOG_TABLE = f"{CATALOG}.nyc_quality.dq_run_log"
 LAYER = "preload"
 
-spark.sql("SET TIME ZONE 'America/New_York'")
+spark.sql("SET TIME ZONE 'UTC'")
 
 # ------------------------------------------------------------ batch detection
 #

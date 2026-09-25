@@ -11,7 +11,7 @@
 -- | | **total** | **42** |
 -- Then 6. Audit log · 7. Results · 8. Gate · 9. Afterwards.
 
-SET TIME ZONE 'America/New_York';
+SET TIME ZONE 'UTC';
 USE CATALOG nyc_mobility;
 
 -- ## Parameters — the same two the ingestion notebook takes
