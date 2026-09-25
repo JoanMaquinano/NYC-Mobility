@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - feature/staging-part-2
 
 jobs:
   validate-project:
@@ -20,3 +21,14 @@ jobs:
 
       - name: Check SQL files exist
         run: find . -name "*.sql" | grep .sql
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install pytest
+
+      - name: Run Python tests
+        run: pytest

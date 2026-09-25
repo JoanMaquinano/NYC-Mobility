@@ -1,6 +1,5 @@
 bundle:
   name: nyc_mobility
-  version: 5.0
 
 include:
   - resources/jobs/*.yml
