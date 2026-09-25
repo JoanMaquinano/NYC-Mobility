@@ -38,6 +38,10 @@ USING DELTA
 COMMENT 'Green Taxi fact table with trip-level grain'
 PARTITIONED BY (pickup_date);
 
+
+SET TIME ZONE 'UTC';
+USE CATALOG nyc_mobility;
+
 -- Populate the fact table
 MERGE INTO nyc_mobility.nyc_gold.fact_taxi_trip AS target
 USING (

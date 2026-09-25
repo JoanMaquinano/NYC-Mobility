@@ -5,6 +5,8 @@
 -- references before loading hourly data; do not mix daily and hourly keys.
 -- Temperature min/max are daily aggregates; temp_avg is the hourly observation.
 -- precipitation_mm measures rain only. Wind fields retain Silver's units.
+SET TIME ZONE 'UTC';
+
 
 MERGE INTO nyc_mobility.nyc_gold.dim_weather AS target
 USING (

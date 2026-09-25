@@ -4,7 +4,7 @@
 --   2. Granular partition keys (adds distance & total to key to prevent dropping simultaneous trips).
 --   3. Unified QC validation logic operating directly on casted timestamp types.
 
-SET TIME ZONE 'America/New_York';
+SET TIME ZONE 'UTC';
 USE CATALOG nyc_mobility;
 USE SCHEMA nyc_silver;
 

@@ -6,7 +6,7 @@
 -- MERGE cleaned weather data into silver table (rounded to 2 decimal places, with weather descriptions)
 -- WEATHER SILVER — clean, classify and deduplicate
 
-SET TIME ZONE 'America/New_York';
+SET TIME ZONE 'UTC';
 USE CATALOG nyc_mobility;
 USE SCHEMA nyc_silver;
 
@@ -128,8 +128,7 @@ USING (
     FROM (
       SELECT
         -- The typed hour. try_cast so a malformed string becomes NULL and is
-        -- classified rather than killing the statement. SET TIME ZONE above
-        -- is what makes this land on the right instant.
+        -- classified rather than killing the statement. 
         TRY_CAST(`date` AS TIMESTAMP)                           AS weather_hour,
         `date`,
         ROUND(TRY_CAST(temperature_2m AS DOUBLE), 2)            AS temperature_2m,

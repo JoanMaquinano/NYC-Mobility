@@ -8,9 +8,9 @@
 -- | 2 | `fact_taxi_trip` — grain, and reconciliation with Silver | 9 |
 -- | 3 | **at-rest integrity** — every foreign key resolves | 8 |
 
-SET TIME ZONE 'America/New_York';
+SET TIME ZONE 'UTC';
 
-USE CATALOG `nyc-mobility`;
+USE CATALOG nyc_mobility;
 
 
 DECLARE OR REPLACE VARIABLE v_run_id STRING;

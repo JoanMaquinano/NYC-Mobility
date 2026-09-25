@@ -1,7 +1,7 @@
 -- Gold — dim_date
 
 
-SET TIME ZONE 'America/New_York';
+SET TIME ZONE 'UTC';
 USE CATALOG nyc_mobility;
 
 
@@ -105,31 +105,3 @@ USING (
 ON target.date_key <=> source.date_key
 WHEN MATCHED THEN UPDATE SET *
 WHEN NOT MATCHED THEN INSERT *;
-
---3. Verify
-
-SELECT
-    (SELECT COUNT(*) FROM nyc_mobility.nyc_gold.fact_taxi_trip f
-     LEFT JOIN nyc_mobility.nyc_gold.dim_date d ON f.pickup_date = d.full_date
-     WHERE f.pickup_date IS NOT NULL AND d.full_date IS NULL)   AS trips_with_no_pickup_date_row,
-    (SELECT COUNT(*) FROM nyc_mobility.nyc_gold.fact_taxi_trip f
-     LEFT JOIN nyc_mobility.nyc_gold.dim_date d ON f.dropoff_date = d.full_date
-     WHERE f.dropoff_date IS NOT NULL AND d.full_date IS NULL)  AS trips_with_no_dropoff_date_row;
-
--- No gaps: a contiguous range has exactly span_days rows and no missing day.
-SELECT
-    (SELECT COUNT(*)   FROM nyc_mobility.nyc_gold.dim_date)      AS rows_built,
-    (SELECT span_days  FROM vw_dim_date_bounds)                    AS span_days,
-    (SELECT COUNT(*) - COUNT(DISTINCT date_key)
-     FROM nyc_mobility.nyc_gold.dim_date)                        AS duplicate_keys,
-    datediff((SELECT MAX(full_date) FROM nyc_mobility.nyc_gold.dim_date),
-             (SELECT MIN(full_date) FROM nyc_mobility.nyc_gold.dim_date)) + 1
-      - (SELECT COUNT(*) FROM nyc_mobility.nyc_gold.dim_date)    AS missing_days;
--- Weekends, as a sanity check on the dayofweek convention. A 2026 calendar
--- year holds 104 weekend days; a partial range holds proportionally fewer.
--- If this comes back at roughly 2/7 of the total you have Sat+Sun; if it is
--- Friday and Saturday, someone changed IN (1, 7) to IN (6, 7).
-SELECT day_name, day_of_week, is_weekend, COUNT(*) AS days
-FROM   nyc_mobility.nyc_gold.dim_date
-GROUP  BY day_name, day_of_week, is_weekend
-ORDER  BY day_of_week;
