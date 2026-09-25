@@ -1,3 +1,4 @@
+-- CI SQLFluff smoke test
 -- Create the nyc_mobility catalog
 CREATE CATALOG IF NOT EXISTS nyc_mobility;
 
