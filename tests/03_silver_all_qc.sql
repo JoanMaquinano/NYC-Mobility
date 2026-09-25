@@ -33,8 +33,24 @@ DECLARE OR REPLACE VARIABLE v_zones_batch  STRING;
 SET VAR v_run_id = uuid();
 SET VAR v_run_ts = current_timestamp();
 
+-- ## The fallback reads SILVER, not the preload run log
+-- Same correction as Bronze. Preload's `batch_month` means "the month I am
+-- ABOUT to load"; Silver's means "the month I just cleaned". Inheriting one as
+-- the other assumes both MERGEs ran in between, and the failure looks like a
+-- data problem rather than a sequencing one: every check SKIPs against a month
+-- that was never loaded, `table_not_empty` FAILs, and the gate stops a table
+-- that is fine.
+--
+-- So the fallback asks Silver what it holds. Pass `:year_month` for any other
+-- month.
 SET VAR v_batch_month = COALESCE(
     NULLIF(:year_month, ''),
+    (SELECT regexp_extract(source_file, '([0-9]{4}-[0-9]{2})', 1)
+     FROM   nyc_silver.green_taxi_clean
+     WHERE  source_file IS NOT NULL
+       AND  regexp_extract(source_file, '([0-9]{4}-[0-9]{2})', 1) <> ''
+     ORDER  BY silver_at DESC
+     LIMIT  1),
     (SELECT batch_month
      FROM   nyc_quality.dq_run_log
      WHERE  layer = 'preload' AND batch_month IS NOT NULL
@@ -43,13 +59,42 @@ SET VAR v_batch_month = COALESCE(
 
 SET VAR v_month_source = CASE
     WHEN COALESCE(:year_month, '') <> '' THEN 'parameter'
-    ELSE 'preload run log' END;
+    WHEN EXISTS (SELECT 1 FROM nyc_silver.green_taxi_clean WHERE source_file IS NOT NULL)
+         THEN 'newest file in silver.green_taxi_clean'
+    ELSE 'preload run log (silver is empty)' END;
 
 SET VAR v_weather_file = COALESCE(
     NULLIF(:weather_file, ''),
     concat('weather_',
            lower(date_format(to_date(concat(v_batch_month, '-01')), 'MMMM')),
            '_', substr(v_batch_month, 1, 4), '.csv'));
+
+-- ### And one more: a month you asked for that is not loaded
+--
+-- The validation above catches an unusable parameter. This catches a usable
+-- one that names a month Silver does not hold -- which, before the fallback
+-- was corrected, was the single most confusing failure this notebook could
+-- produce: every check SKIPs, `table_not_empty` FAILs, the gate stops the run,
+-- and the message names a table that is perfectly healthy.
+--
+-- Only applies when the month came from the PARAMETER. A month that came from
+-- the fallback is by construction a month Silver holds.
+SELECT CASE
+    WHEN COALESCE(:year_month, '') <> ''
+     AND EXISTS (SELECT 1 FROM nyc_silver.green_taxi_clean)
+     AND NOT EXISTS (SELECT 1 FROM nyc_silver.green_taxi_clean
+                     WHERE regexp_extract(source_file, '([0-9]{4}-[0-9]{2})', 1)
+                           = v_batch_month)
+      THEN raise_error(CONCAT(
+             'year_month=', v_batch_month, ' has no rows in nyc_silver.green_taxi_clean. ',
+             'Months actually loaded: ',
+             (SELECT concat_ws(', ', array_sort(collect_set(
+                  regexp_extract(source_file, '([0-9]{4}-[0-9]{2})', 1))))
+              FROM nyc_silver.green_taxi_clean WHERE source_file IS NOT NULL),
+             '. Run the MERGE for ', v_batch_month,
+             ' first, or leave year_month blank to check the newest loaded month.'))
+    ELSE CONCAT('Silver holds rows for ', v_batch_month) END AS batch_present;
+
 
 -- ## taxi_zones_clean has no month in it
 --
@@ -73,10 +118,6 @@ UNION ALL SELECT 'taxi_zones_clean',               v_zones_batch;
 
 
 -- ## Validate before checking anything
---
--- A typo like `2026-3` does not error on its own: it matches zero rows, every
--- check SKIPs, and the run reads as almost clean. Silent and green is the
--- worst failure mode a QC notebook has.
 SELECT CASE
     WHEN v_batch_month IS NULL
       THEN raise_error('No year_month given and no preload run found in '
@@ -98,10 +139,6 @@ SELECT v_run_id       AS run_id,
 
 
 -- ## Threshold policy — three bands, a floor, and a second line
---
--- Identical to the Bronze notebook, so a rule means the same thing wherever
--- it appears.
---
 -- | Variable | Value | Meaning |
 -- |---|---|---|
 -- | `v_strict_pct`   | `0.0`   | must never happen: one occurrence corrupts a join or the grain, or the check is scalar |
@@ -143,15 +180,14 @@ SET VAR v_cast_fail_pct = 10.0;
 
 
 -- ## Batch scope
---
--- Five views, and then nothing else in the notebook reads a full table. The
--- Bronze views matter as much as the Silver ones: reconciliation compares one
--- month against the same month, and comparing a month of Silver against every
--- month of Bronze is how the first March Bronze run reported 79% of its rows
--- missing.
 
 CREATE OR REPLACE TEMPORARY VIEW vw_batch_silver_taxi AS
-SELECT *
+SELECT *,
+       -- The month this row's own file claims -- the same expression the
+       -- cleaning notebook uses to derive its batch window, so the promises
+       -- below test the rule that actually ran rather than a paraphrase of it.
+       to_date(concat(regexp_extract(source_file, '([0-9]{4}-[0-9]{2})', 1),
+                      '-01'))                                AS file_month_start
 FROM   nyc_silver.green_taxi_clean
 WHERE  regexp_extract(source_file, '([0-9]{4}-[0-9]{2})', 1) = v_batch_month;
 
@@ -227,7 +263,9 @@ SELECT * FROM VALUES
     ('green_taxi_clean', 'null_timestamps_are_quarantined'),
     ('green_taxi_clean', 'reversed_trips_are_quarantined'),
     ('green_taxi_clean', 'unresolvable_zones_are_quarantined'),
-    ('green_taxi_clean', 'out_of_era_pickups_are_quarantined'),
+    ('green_taxi_clean', 'out_of_batch_pickups_are_quarantined'),
+    ('green_taxi_clean', 'out_of_batch_dropoffs_are_quarantined'),
+    ('green_taxi_clean', 'future_timestamps_are_quarantined'),
     ('green_taxi_clean', 'untraceable_rows_are_quarantined'),
     ('green_taxi_clean', 'one_row_per_merge_key'),
     ('green_taxi_clean', 'source_file_recorded'),
@@ -259,10 +297,6 @@ AS blocking(table_name, check_name);
 
 
 -- ## Which tables the run cannot proceed without
---
--- Mirrors the Bronze notebook. green_taxi_clean is the fact table: no trips,
--- no Gold. Weather and zones enrich it, so a bad batch of either holds that
--- source back from Gold and leaves the trip path alone.
 DECLARE OR REPLACE VARIABLE v_required_tables ARRAY<STRING>;
 SET VAR v_required_tables = array('green_taxi_clean');
 
@@ -414,10 +448,31 @@ s AS (
                     OR pu_location_id NOT BETWEEN 1 AND 265
                     OR do_location_id NOT BETWEEN 1 AND 265)
                   AND dq_status <> 'FAIL' THEN 1 ELSE 0 END)                 AS p_zone,
+        -- ## The batch window, re-derived the way the cleaning notebook does
+        --
+        -- This previously tested `pickup < TIMESTAMP'2009-01-01'`, which the
+        -- cleaning notebook no longer uses. It kept PASSing, because the new
+        -- rules are strictly stronger -- so it was a check quietly asserting
+        -- something the code had stopped doing. That is the worst state for a
+        -- check to be in: green, and testing nothing.
+        --
+        -- Three promises now, one per FAIL rule in the cleaning notebook.
         SUM(CASE WHEN lpep_pickup_datetime IS NOT NULL
-                  AND (lpep_pickup_datetime <  TIMESTAMP'2009-01-01 00:00:00'
-                    OR lpep_pickup_datetime >  current_timestamp())
-                  AND dq_status <> 'FAIL' THEN 1 ELSE 0 END)                 AS p_era,
+                  AND file_month_start IS NOT NULL
+                  AND DATE(lpep_pickup_datetime) NOT BETWEEN
+                        add_months(file_month_start, -1)
+                    AND date_sub(add_months(file_month_start, 2), 1)
+                  AND dq_status <> 'FAIL' THEN 1 ELSE 0 END)                 AS p_batch_pu,
+        SUM(CASE WHEN lpep_dropoff_datetime IS NOT NULL
+                  AND file_month_start IS NOT NULL
+                  AND DATE(lpep_dropoff_datetime) NOT BETWEEN
+                        add_months(file_month_start, -1)
+                    AND date_sub(add_months(file_month_start, 2), 1)
+                  AND dq_status <> 'FAIL' THEN 1 ELSE 0 END)                 AS p_batch_do,
+        -- The backstop, which needs no literal: no trip can be in the future.
+        SUM(CASE WHEN (lpep_pickup_datetime  > current_timestamp()
+                    OR lpep_dropoff_datetime > current_timestamp())
+                  AND dq_status <> 'FAIL' THEN 1 ELSE 0 END)                 AS p_future,
         SUM(CASE WHEN source_file IS NULL AND dq_status <> 'FAIL'
                  THEN 1 ELSE 0 END)                                          AS p_lineage,
 
@@ -486,7 +541,9 @@ checks AS (
     UNION ALL SELECT 'consistency',  'null_timestamps_are_quarantined',    v_strict_pct, p_null_ts,  total_rows FROM s
     UNION ALL SELECT 'consistency',  'reversed_trips_are_quarantined',     v_strict_pct, p_reversed, total_rows FROM s
     UNION ALL SELECT 'consistency',  'unresolvable_zones_are_quarantined', v_strict_pct, p_zone,     total_rows FROM s
-    UNION ALL SELECT 'consistency',  'out_of_era_pickups_are_quarantined', v_strict_pct, p_era,      total_rows FROM s
+    UNION ALL SELECT 'consistency',  'out_of_batch_pickups_are_quarantined',  v_strict_pct, p_batch_pu, total_rows FROM s
+    UNION ALL SELECT 'consistency',  'out_of_batch_dropoffs_are_quarantined', v_strict_pct, p_batch_do, total_rows FROM s
+    UNION ALL SELECT 'consistency',  'future_timestamps_are_quarantined',     v_strict_pct, p_future,   total_rows FROM s
     UNION ALL SELECT 'consistency',  'untraceable_rows_are_quarantined',   v_strict_pct, p_lineage,  total_rows FROM s
 
     -- Same names as Bronze and preload, so the three layers line up in the
@@ -540,6 +597,7 @@ FROM (
 
 
 -- # 2. taxi_zones_clean
+--
 -- A full refresh of a 265-row lookup, so it is not scoped to a month -- its
 -- results carry the lookup file's version key instead. Identical results
 -- across months are the expected outcome, not duplication, and a second
@@ -1005,6 +1063,9 @@ FROM (
 
 -- # 5. Join coverage — what Gold will actually resolve
 --
+-- The most useful checks in the notebook, because they predict a failure that
+-- never raises an error.
+--
 -- Every dimension in Gold has an Unknown member keyed `-1`, so an
 -- unresolvable foreign key does not drop the trip -- it lands in a bucket
 -- labelled "we do not know". The star schema works perfectly and the answer
@@ -1197,6 +1258,7 @@ WHERE  d.layer = 'silver' AND d.check_category <> 'gate';
 
 
 -- # 7. Results — this batch only
+--
 -- Every query here joins vw_batch_scope, so it shows one month of
 -- green_taxi_clean and weather_clean plus the current version of
 -- taxi_zones_clean. The table underneath still holds every batch ever
@@ -1248,6 +1310,7 @@ ORDER  BY failed_rows DESC;
 
 
 -- # 8. Gate — per table
+--
 -- A table is STOPPED when either is true of it:
 --
 -- | Trigger | Meaning |
@@ -1259,6 +1322,7 @@ ORDER  BY failed_rows DESC;
 -- of trouble adding up to a stop is a stop no single source deserved.
 --
 -- ### Only a required table raises
+--
 -- Every table gets a verdict; only `v_required_tables` halts the run. A bad
 -- weather batch therefore stops weather -> Gold and lets the trip path
 -- continue.
@@ -1275,12 +1339,18 @@ ORDER  BY failed_rows DESC;
 --       AND  batch_month = :year_month
 --       AND  table_name  = 'green_taxi_clean'
 --       AND  check_name  = 'batch_cleared_for_gold';
+--
+-- They are written after section 6, so they do not inflate the audit counts.
 
 -- Enforcement switch.
+--
 -- FALSE: verdicts are still computed, written and displayed, but the notebook
 -- does not raise, so the job carries on to Gold. TRUE: a stopped required
 -- table raises as designed.
-
+--
+-- One line so that suspending enforcement during a migration is one edit
+-- and a grep for v_gate_enforce finds it. Leave it TRUE: a gate parked on
+-- FALSE indefinitely is not a gate, it is a report.
 DECLARE OR REPLACE VARIABLE v_gate_enforce BOOLEAN;
 SET VAR v_gate_enforce = TRUE;
 
@@ -1289,6 +1359,13 @@ SET VAR v_max_total_failures = 5;
 
 
 -- ### The blocking list has to be checked against reality
+--
+-- A pair in that list that no check ever emits is inert: it matches nothing,
+-- so the gate neither blocks nor complains. That is what makes it dangerous
+-- -- the list reads like a guarantee, and the next person to rename a check
+-- turns one of those guarantees off without touching the gate. The Bronze
+-- gate carried four such names for weeks.
+--
 -- Anything returned below is a guarantee this gate is making and the notebook
 -- never produces. Expect zero rows.
 SELECT b.table_name, b.check_name AS blocking_pair_never_produced
@@ -1370,18 +1447,34 @@ SELECT v_batch_month                                    AS batch_month,
               THEN 'will continue; the named tables are held back from Gold'
             ELSE 'will continue' END                    AS verdict;
 
+DECLARE OR REPLACE VARIABLE v_stopped_detail STRING;
+
+-- The reason, not just the table. Without this the raise names a table and
+-- the query that would explain it sits BELOW the raise, so it never runs --
+-- the most useful output in the notebook is unreachable exactly when it is
+-- needed. `blocking_names` is already computed in the gate view; this carries
+-- it into the message.
+SET VAR v_stopped_detail = (
+    SELECT COALESCE(concat_ws(' | ', collect_list(
+               concat(table_name, ' -> ',
+                      CASE WHEN blocking_failures > 0 THEN blocking_names
+                           ELSE concat(CAST(failures AS STRING),
+                                       ' non-blocking failures, at or over the limit of ',
+                                       CAST(v_max_total_failures AS STRING)) END))), '')
+    FROM   vw_silver_gate WHERE verdict = 'STOP' AND is_required);
+
 SELECT CASE
     WHEN v_gate_enforce AND v_stopped_required <> ''
       THEN raise_error(CONCAT('Silver DQ gate FAILED for ', v_batch_month,
-                              ': required table(s) stopped -- ', v_stopped_required,
-                              '. The transformation is wrong, not the data. ',
-                              'See nyc_quality.dq_results for run ', v_run_id))
+                              ': ', v_stopped_detail,
+                              '. See nyc_quality.dq_results for run ', v_run_id))
     WHEN v_stopped_optional <> ''
       THEN CONCAT('Silver DQ gate PASSED for ', v_batch_month,
                   '; held back from Gold: ', v_stopped_optional)
     ELSE CONCAT('Silver DQ gate PASSED for ', v_batch_month,
                 ' -- every table cleared')
 END AS gate;
+
 -- A pass with non-blocking failures recorded is a normal, honest outcome.
 -- Read them here and decide whether each is a threshold to measure or a
 -- defect to fix:
@@ -1394,6 +1487,12 @@ ORDER  BY failed_pct DESC;
 
 
 -- # 9. Afterwards
+--
+-- Sections 7 and 8 are the batch. This is the history, and it needs no extra
+-- table: dq_results already holds every month, and batch_month is what turns
+-- it into a per-month record.
+
+-- The defence of every row not in Gold, for this batch.
 SELECT reason, COUNT(*) AS trips
 FROM  (SELECT explode(filter(qc_error_descriptions, x -> startswith(x, 'FAIL:'))) AS reason
        FROM   vw_batch_silver_taxi
@@ -1425,9 +1524,11 @@ GROUP  BY batch_month
 ORDER  BY batch_month;
 
 -- Has a check moved between months?
+--
 -- Comparing months rather than runs is the useful question. Two runs of the
 -- same month should be identical -- that is the idempotency test, and LAG
--- over run_ts answered it with a row of zeroes. 
+-- over run_ts answered it with a row of zeroes. A rate that climbs from March
+-- to April to May is a source drifting, which is worth catching early.
 SELECT table_name, check_name, batch_month, failed_pct, status,
        LAG(failed_pct) OVER (PARTITION BY table_name, check_name ORDER BY batch_month) AS previous_month_pct,
        ROUND(failed_pct - LAG(failed_pct) OVER (PARTITION BY table_name, check_name ORDER BY batch_month), 4) AS change
@@ -1435,7 +1536,10 @@ FROM   nyc_quality.vw_dq_by_month
 WHERE  layer = 'silver' AND batch_month NOT LIKE 'static-%'
 ORDER  BY table_name, check_name, batch_month;
 
--- Checks that have never once passed, across every month loaded so far. 
+-- Checks that have never once passed, across every month loaded so far. A
+-- rule that is always red is either a real standing defect or a rule that
+-- does not describe this transformation. Either way it needs a decision, not
+-- another month of being ignored.
 SELECT table_name, check_name,
        COUNT(*)        AS months_checked,
        MAX(failed_pct) AS worst_pct,
@@ -1447,7 +1551,8 @@ HAVING SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) = 0
    AND SUM(CASE WHEN status = 'SKIP' THEN 1 ELSE 0 END) = 0
 ORDER  BY worst_pct DESC;
 
--- The latest run of every layer side by side
+-- The latest run of every layer side by side: the whole pipeline's quality
+-- position in one row each.
 SELECT layer, batch_month, overall_status, checks_run, checks_passed,
        checks_warned, checks_failed, checks_skipped, run_ts
 FROM   nyc_quality.vw_latest_dq_run
