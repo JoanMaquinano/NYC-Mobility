@@ -277,6 +277,24 @@ Merge to Main
 
 This keeps code changes reviewable and provides automated checks before changes reach the main branch.
 
+Repository automation includes:
+
+- Automatic reviewer assignment
+- Repository validation checks
+- CI validation for Python, SQL, notebooks, tests, and the Databricks bundle
+- Staging deployment through the Databricks bundle after changes reach `feature/staging-part-2`
+- Branch protection rules
+- Standardized code review process
+
+The CI workflow is defined in `.github/workflows/ci.yaml`. It runs on pull
+requests and pushes for relevant source, test, configuration, and workflow
+changes. The deployment workflow is defined in `.github/workflows/deploy.yaml`;
+it validates, deploys, and runs the `NYC_Mobility` Databricks job against the
+`dev` bundle target after a successful push to `feature/staging-part-2`.
+
+The `staging` GitHub Environment must provide `DATABRICKS_HOST` and
+`DATABRICKS_TOKEN` secrets.
+
 ---
 
 ## 📌 Project Status

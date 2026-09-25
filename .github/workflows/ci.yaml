@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - feature/staging-part-2
+    paths:
+      - "**.py"
+      - "**.sql"
+      - "**.ipynb"
+      - "*.yml"
+      - "*.yaml"
+      - "*.toml"
+      - ".github/workflows/**"
+  push:
+    branches:
+      - feature/staging-part-2
+    paths:
+      - "**.py"
+      - "**.sql"
+      - "**.ipynb"
+      - "*.yml"
+      - "*.yaml"
+      - "*.toml"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate project
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install quality tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install black flake8 isort nbqa nbstripout pytest sqlfluff
+
+      - name: Validate required project structure
+        run: |
+          test -d src
+          test -d tests
+          test -d docs
+          test -f databricks.yml
+          find src tests -type f -name "*.sql" -print -quit | grep -q .
+
+      - name: Check Python formatting
+        run: black --check --line-length 120 .
+
+      - name: Check Python imports
+        run: isort --check-only --profile black --line-length 120 .
+
+      - name: Lint Python
+        run: flake8 src tests --max-line-length=120
+
+      - name: Validate notebooks
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          for notebook in Path(".").rglob("*.ipynb"):
+              document = json.loads(notebook.read_text(encoding="utf-8"))
+              if document.get("nbformat", 0) < 4 or not isinstance(document.get("cells"), list):
+                  raise SystemExit(f"Invalid notebook structure: {notebook}")
+          PY
+          nbstripout --verify $(find . -type f -name "*.ipynb" -not -path "./.git/*")
+
+      - name: Validate SQL syntax and formatting
+        run: sqlfluff lint --dialect databricks src tests
+
+      - name: Run Python tests
+        run: |
+          if find tests -type f \( -name "test_*.py" -o -name "*_test.py" \) -print -quit | grep -q .; then
+            pytest
+          else
+            echo "No pytest-discoverable Python tests found; SQL quality checks cover the current test suite."
+          fi
+
+      - name: Check whitespace
+        run: git diff --check
+
+      - name: Set up Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Validate Databricks bundle
+        run: databricks bundle validate -t dev
