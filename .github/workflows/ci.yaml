@@ -5,21 +5,27 @@ on:
     branches:
       - feature/staging-part-2
     paths:
-      - "**.py"
-      - "**.sql"
-      - "*.yml"
-      - "*.yaml"
-      - "*.toml"
+      - "**/*.py"
+      - "**/*.sql"
+      - "**/*.yml"
+      - "**/*.yaml"
+      - "**/*.toml"
+      - ".sqlfluff"
+      - ".pre-commit-config.yaml"
+      - ".flake8"
       - ".github/workflows/**"
   push:
     branches:
       - feature/staging-part-2
     paths:
-      - "**.py"
-      - "**.sql"
-      - "*.yml"
-      - "*.yaml"
-      - "*.toml"
+      - "**/*.py"
+      - "**/*.sql"
+      - "**/*.yml"
+      - "**/*.yaml"
+      - "**/*.toml"
+      - ".sqlfluff"
+      - ".pre-commit-config.yaml"
+      - ".flake8"
       - ".github/workflows/**"
   workflow_dispatch:
 
@@ -51,7 +57,14 @@ jobs:
       - name: Install quality tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install black flake8 isort nbqa nbstripout pytest sqlfluff
+          python -m pip install \
+            "black==24.10.0" \
+            "flake8==7.1.1" \
+            "isort==5.13.2" \
+            "nbqa==1.9.1" \
+            "nbstripout==0.7.1" \
+            "pytest==8.3.3" \
+            "sqlfluff[databricks]==3.3.1"
 
       - name: Validate required project structure
         run: |
@@ -62,16 +75,16 @@ jobs:
           find src tests -type f -name "*.sql" -print -quit | grep -q .
 
       - name: Check Python formatting
-        run: black --check --line-length 120 .
-
+        run: python -m black --check src tests
+      
       - name: Check Python imports
-        run: isort --check-only --profile black --line-length 120 .
-
+        run: python -m isort --check-only src tests
+      
       - name: Lint Python
-        run: flake8 src tests --max-line-length=120
+        run: python -m flake8 src tests
 
       - name: Validate SQL syntax and formatting
-        run: sqlfluff lint --dialect databricks src tests
+        run: python -m sqlfluff lint --config .sqlfluff src tests
 
       - name: Run Python tests
         run: |
