@@ -1,433 +1,1085 @@
--- # Data Quality — rules catalogue, group pipeline
-
--- **Run once, and again whenever you add or change a check.**
-
--- This table **documents** every check: what it asserts, why the threshold
--- is what it is, and what Silver does about a failure.
+-- dq_rules — the catalogue of every rule, and why each threshold is what it is
+-- ## This table is GENERATED, not maintained
 --
+-- Every row below was extracted from the check notebooks themselves: names,
+-- categories, thresholds, row floors and blocking flags are read out of the
+-- SQL and the Check() literals, not retyped. Only the two prose columns --
+-- rule_description and rationale -- are written by hand.
 --
--- | Value | `total_rows` is | Example |
--- |---|---|---|
--- | `table_rows` | every row in the table | most checks |
--- | `scalar` | 1 — the check is one assertion, not a rate | `lookup_has_265_zones` |
--- | `vendor_rows` | rows for one vendor only | the charge identities |
--- | `distinct_ids` | distinct key values, not rows | `pickup_zone_exists_in_lookup` |
--- | `table_rows` | trip rows | `trips_with_unmatched_pickup_zone` |
--- | `source_rows` | rows in the landed Parquet | load fidelity |
--- | `source_files` | files in the landing directory | `every_landed_file_is_loaded` |
+-- That matters because an earlier version of this table documented 118 Bronze
+-- rules that no longer existed and none of preload's. A catalogue that drifts
+-- from the code is worse than no catalogue: it reads like a guarantee and
+-- describes a pipeline nobody is running.
 --
--- "3% of rows failed" and "3% of the ids in the lookup failed" are not
--- comparable numbers, and until now nothing in the results said which one
--- you were reading.
+-- Section 3 is the guard against that recurring. It compares this table
+-- against what dq_results actually emitted, in both directions.
 --
--- ## The gate still owns the blocking list
--- `blocking` here is documentation, exactly as `threshold_pct` is: the
--- running copy is the `IN` list inline in the gate, so a reviewer can see
--- what stops the pipeline without opening another table, and a missing row
--- here costs a documentation gap rather than an open gate. Section 3 is
--- the drift guard for both, and the check notebook now carries its own
--- guard for names in the gate that no check produces.
+-- ## What is in it
 --
--- ## silver_action
--- | Value | Meaning in Silver |
+-- | Layer | Rules | Blocking | Question the layer asks |
+-- |---|---|---|---|
+-- | preload  | 101 | 17 | is this file fit to load |
+-- | bronze   | 42 | 28 | did the loader move it faithfully |
+-- | silver   | 87 | 34 | did the transformation classify it correctly |
+-- | gold     | 49 | 21 | did the star schema get built from Silver |
+-- | at_rest  | 12 | 2 | does the warehouse stand up as it is |
+-- | **total**| **291** | **102** | |
+--
+-- ## Changed in this revision
+--
+-- Silver retired `out_of_era_pickups_are_quarantined` and gained three
+-- promises in its place:
+--
+--   * out_of_batch_pickups_are_quarantined
+--   * out_of_batch_dropoffs_are_quarantined
+--   * future_timestamps_are_quarantined
+--
+-- The old rule tested a hardcoded 2009 literal. Three things were wrong with
+-- it: the literal is a fact about this dataset rather than a rule; it was
+-- strictly less-than, so exactly 2009-01-01 passed; and it covered PICKUPS
+-- only, so a 2026 pickup with a 2009 dropoff passed every rule and still set
+-- the dim_date lower bound. The window is now derived per row from
+-- `source_file`, and both timestamps are checked.
+--
+-- The QC check had drifted the same way: it kept PASSing because the new
+-- cleaning rules are strictly stronger, so it was green and testing nothing.
+--
+-- ## Column meanings
+--
+-- | Column | Holds |
 -- |---|---|
--- | `QUARANTINE` | Blocking. Sets `dq_status = QUARANTINE`; excluded from Gold. |
--- | `FLAG` | Advisory. Row is kept, a `flag_*` column marks it. |
--- | `IGNORE` | Reported only. An assertion about the source, not about a row. |
+-- | `threshold_pct` | the FAIL line: at or under it the check WARNs |
+-- | `warn_pct` | the PASS line: at or under it the check is silent |
+-- | `min_failed_rows` | absolute floor; at or under it a break is a WARN whatever the rate |
+-- | `blocking` | TRUE if a FAIL on this (table, check) pair stops its layer |
+-- | `silver_action` | what happens to a row breaking it: QUARANTINE, FLAG, IGNORE, N/A |
+-- | `denominator_scope` | what `total_rows` counts, so a percentage can be read |
+-- | `rationale` | basis tag, then why this rule and why this threshold |
 --
--- Only `QUARANTINE` rules feed the 10% drop-rate gate — which is a
--- different instrument from these thresholds: an aggregate limit on how
--- much Silver discards overall, blanket on purpose.
-SET TIME ZONE 'America/New_York';
+-- Basis tags: `SOURCE_SPEC` (the data dictionary says so) · `PIPELINE_INVARIANT`
+-- (our code must hold it) · `BUSINESS_RULE` · `OBSERVED` (tuned from real runs)
+-- · `ADVISORY` (recorded, never gates) · `AT_REST` (standing integrity).
 
-USE CATALOG `nyc-mobility`;
-USE SCHEMA nyc_quality;
+-- UTC, pinned, like every other notebook in this project. Nothing here reads a
+-- timestamp, but a notebook that sets a different zone from its neighbours is
+-- exactly the drift this table exists to catch.
+SET TIME ZONE 'UTC';
 
+USE CATALOG nyc_mobility;
 
+-- Full replace. The table is derived, so a partial update is meaningless:
+-- either it matches the notebooks or it does not.
+TRUNCATE TABLE nyc_quality.dq_rules;
 
-CREATE OR REPLACE TABLE dq_rules (
-    layer            STRING  COMMENT 'bronze | silver | gold',
-    table_name       STRING,
-    check_category   STRING  COMMENT 'completeness | uniqueness | validity | consistency | business',
-    check_name       STRING  COMMENT 'matches check_name in dq_results',
-    threshold_pct    DOUBLE  COMMENT 'documented here; the running copy lives inline in the check notebook',
-    rule_description STRING  COMMENT 'what the check asserts, in one line',
-    rationale        STRING  COMMENT 'basis tag plus why this rule and why this threshold',
-    silver_action    STRING  COMMENT 'QUARANTINE | FLAG | IGNORE',
-    blocking         BOOLEAN COMMENT 'TRUE if a FAIL on this rule stops the pipeline; mirrors the gate list in the check notebook',
-    denominator_scope STRING COMMENT 'what total_rows counts: table_rows | scalar | vendor_rows | distinct_ids | source_rows | source_files'
+INSERT INTO nyc_quality.dq_rules (
+    layer, table_name, check_category, check_name,
+    threshold_pct, warn_pct, min_failed_rows, blocking,
+    rule_description, rationale, silver_action, denominator_scope
 )
-USING DELTA
-COMMENT 'Catalogue of every data quality rule, with the reasoning behind each threshold.';
+VALUES
+-- ---------- preload ----------
+    ('preload', 'green_taxi', 'validity', 'cast_ok_RatecodeID', 10.0, 5.0, 0, TRUE,
+     'Value of RatecodeID is present in the landed file and will not convert to its Bronze type.',
+     'PIPELINE_INVARIANT — measured before the write, where the offending value is still visible. Bronze can only report the resulting NULL.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'cast_ok_lpep_dropoff_datetime', 10.0, 5.0, 0, TRUE,
+     'Value of lpep dropoff datetime is present in the landed file and will not convert to its Bronze type.',
+     'PIPELINE_INVARIANT — measured before the write, where the offending value is still visible. Bronze can only report the resulting NULL.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'cast_ok_lpep_pickup_datetime', 10.0, 5.0, 0, TRUE,
+     'Value of lpep pickup datetime is present in the landed file and will not convert to its Bronze type.',
+     'PIPELINE_INVARIANT — measured before the write, where the offending value is still visible. Bronze can only report the resulting NULL.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'cast_ok_passenger_count', 10.0, 5.0, 0, TRUE,
+     'Value of passenger count is present in the landed file and will not convert to its Bronze type.',
+     'PIPELINE_INVARIANT — measured before the write, where the offending value is still visible. Bronze can only report the resulting NULL.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'cast_ok_payment_type', 10.0, 5.0, 0, TRUE,
+     'Value of payment type is present in the landed file and will not convert to its Bronze type.',
+     'PIPELINE_INVARIANT — measured before the write, where the offending value is still visible. Bronze can only report the resulting NULL.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'cast_ok_trip_type', 10.0, 5.0, 0, TRUE,
+     'Value of trip type is present in the landed file and will not convert to its Bronze type.',
+     'PIPELINE_INVARIANT — measured before the write, where the offending value is still visible. Bronze can only report the resulting NULL.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'consistency', 'dispatch_fields_null_as_a_set', 0.0, 0.0, 5, FALSE,
+     'Dispatch fields are partially populated.',
+     'SOURCE_SPEC — they arrive together or not at all.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'consistency', 'dropoff_after_pickup', 10.0, 0.0, 5, FALSE,
+     'Dropoff timestamp precedes pickup, measured on the landed file.',
+     'BUSINESS_RULE — same rule, one layer earlier.', 'QUARANTINE', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'completeness', 'dropoff_datetime_not_null', 0.0, 0.0, 5, FALSE,
+     'Column dropoff datetime is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'QUARANTINE', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'dropoff_zone_in_range', 10.0, 0.0, 5, FALSE,
+     'Value of dropoff zone is outside its valid bounds.',
+     'SOURCE_SPEC — out-of-range values do not join and would silently drop.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'completeness', 'dropoff_zone_not_null', 0.0, 0.0, 5, FALSE,
+     'Column dropoff zone is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'QUARANTINE', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'consistency', 'duration_not_zero', 10.0, 0.0, 5, FALSE,
+     'Pickup and dropoff are the same instant.',
+     'BUSINESS_RULE — a zero-length trip is a cancellation.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'consistency', 'duration_under_24_hours', 10.0, 0.0, 5, FALSE,
+     'Trip duration exceeds 24 hours.',
+     'OBSERVED — a meter left running, not a trip.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'schema', 'expected_columns_present', 0.0, 0.0, 0, TRUE,
+     'A column the declared schema names is missing from the file.',
+     'PIPELINE_INVARIANT — read_files() with a declared schema maps CSV BY POSITION. This compares as a set, so it catches a rename but NOT a reorder. Known gap.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'completeness', 'expected_file_present', 0.0, 0.0, 0, TRUE,
+     'The file this batch needs is not in the landing volume.',
+     'PIPELINE_INVARIANT — nothing downstream can proceed without it, and the failure is cheapest to report here.', 'FLAG', 'scalar (1)'),
+    ('preload', 'green_taxi', 'validity', 'fare_amount_not_negative', 10.0, 0.0, 5, FALSE,
+     'fare_amount is below zero.',
+     'BUSINESS_RULE — a refund, not a trip.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'completeness', 'fare_amount_not_null', 10.0, 0.0, 5, FALSE,
+     'Column fare amount is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'business', 'fare_implies_some_distance', 10.0, 0.0, 5, FALSE,
+     'A non-trivial fare with zero distance.',
+     'OBSERVED — a fare with no distance is a cancelled or mis-metered trip.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'business', 'fare_plausible_for_duration', 10.0, 0.0, 5, FALSE,
+     'Fare is implausible for the trip duration.',
+     'OBSERVED — catches meter faults and unit mix-ups.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'completeness', 'file_not_empty', 0.0, 0.0, 0, TRUE,
+     'The landed file has zero rows.',
+     'PIPELINE_INVARIANT — a zero-byte download looks like a successful ingestion.', 'FLAG', 'scalar (1)'),
+    ('preload', 'green_taxi', 'business', 'implied_speed_under_100mph', 10.0, 0.0, 5, FALSE,
+     'Distance over duration exceeds 100 mph.',
+     'OBSERVED — physically impossible; indicates a bad timestamp or distance.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'consistency', 'myle_dispatch_fields_stay_null', 0.0, 0.0, 5, FALSE,
+     'Vendor 6 rows populate the dispatch fields.',
+     'SOURCE_SPEC — Myle never populates them; a value means the vendor mapping changed.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'business', 'myle_fare_stays_placeholder', 0.0, 0.0, 5, FALSE,
+     'A vendor 6 fare departs from its placeholder value.',
+     'SOURCE_SPEC — Myle reports a fixed placeholder, not a real fare.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'uniqueness', 'no_exact_duplicate_rows', 10.0, 0.0, 5, FALSE,
+     'Byte-identical duplicate rows in the landed file.',
+     'OBSERVED — a re-download appended rather than replaced. Tolerated: the MERGE deduplicates, so this is information about the file, not a reason to refuse it.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'no_fractional_loss_RatecodeID', 10.0, 5.0, 0, TRUE,
+     'Value of RatecodeID converts to INT but changes — 2.7 becomes 2.',
+     'PIPELINE_INVARIANT — CAST truncates silently under ANSI mode: no error, no NULL. The only check in the pipeline that can see this, and it must run before the write.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'no_fractional_loss_passenger_count', 10.0, 5.0, 0, TRUE,
+     'Value of passenger count converts to INT but changes — 2.7 becomes 2.',
+     'PIPELINE_INVARIANT — CAST truncates silently under ANSI mode: no error, no NULL. The only check in the pipeline that can see this, and it must run before the write.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'no_fractional_loss_payment_type', 10.0, 5.0, 0, TRUE,
+     'Value of payment type converts to INT but changes — 2.7 becomes 2.',
+     'PIPELINE_INVARIANT — CAST truncates silently under ANSI mode: no error, no NULL. The only check in the pipeline that can see this, and it must run before the write.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'no_fractional_loss_trip_type', 10.0, 5.0, 0, TRUE,
+     'Value of trip type converts to INT but changes — 2.7 becomes 2.',
+     'PIPELINE_INVARIANT — CAST truncates silently under ANSI mode: no error, no NULL. The only check in the pipeline that can see this, and it must run before the write.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'business', 'no_tip_recorded_on_cash', 10.0, 0.0, 5, FALSE,
+     'A cash trip records a tip.',
+     'BUSINESS_RULE — same rule, measured on the landed file.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'schema', 'no_unexpected_columns', 100.0, 0.0, 0, FALSE,
+     'The file carries a column the schema does not name.',
+     'ADVISORY — a new upstream column is information, not a defect, but it is how a positional mapping silently shifts.', 'IGNORE', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'passenger_count_not_negative', 0.0, 0.0, 5, FALSE,
+     'passenger_count is below zero.',
+     'BUSINESS_RULE — a negative count is a bad row.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'completeness', 'passenger_count_not_null_excl_myle', 10.0, 0.0, 5, FALSE,
+     'passenger_count is NULL on a non-Myle row.',
+     'SOURCE_SPEC — vendor 6 never populates it, so counting its rows reports a structural absence as missing data.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'passenger_count_not_zero', 10.0, 0.0, 5, FALSE,
+     'passenger_count is zero.',
+     'BUSINESS_RULE — a trip with no passengers is a deadhead or a bad row.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'passenger_count_plausible', 10.0, 0.0, 5, FALSE,
+     'passenger_count exceeds vehicle capacity.',
+     'SOURCE_SPEC — a green taxi seats at most a handful.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'payment_type_in_domain', 10.0, 0.0, 5, FALSE,
+     'Value of payment type is outside the set the data dictionary defines.',
+     'SOURCE_SPEC — TLC publishes the code list; a value outside it is a source change or a bad row.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'completeness', 'pickup_datetime_not_null', 0.0, 0.0, 5, FALSE,
+     'Column pickup datetime is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'QUARANTINE', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'pickup_month_matches_source_file', 10.0, 0.0, 5, FALSE,
+     'A trip pickup month differs from the file month.',
+     'SOURCE_SPEC — TLC files reliably carry a few out-of-month trips; tolerated, recorded.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'pickup_zone_in_range', 10.0, 0.0, 5, FALSE,
+     'Value of pickup zone is outside its valid bounds.',
+     'SOURCE_SPEC — out-of-range values do not join and would silently drop.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'completeness', 'pickup_zone_not_null', 0.0, 0.0, 5, FALSE,
+     'Column pickup zone is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'QUARANTINE', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'ratecode_in_domain', 10.0, 0.0, 5, FALSE,
+     'Value of ratecode is outside the set the data dictionary defines.',
+     'SOURCE_SPEC — TLC publishes the code list; a value outside it is a source change or a bad row.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'store_and_fwd_flag_in_domain', 10.0, 0.0, 5, FALSE,
+     'Value of store and fwd flag is outside the set the data dictionary defines.',
+     'SOURCE_SPEC — TLC publishes the code list; a value outside it is a source change or a bad row.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'total_amount_not_negative', 10.0, 0.0, 5, FALSE,
+     'total_amount is below zero.',
+     'BUSINESS_RULE — a refund, not a trip.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'completeness', 'total_amount_not_null', 10.0, 0.0, 5, FALSE,
+     'Column total amount is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'business', 'total_equals_sum_of_charges_v1', 10.0, 0.0, 5, FALSE,
+     'Vendor 1 total_amount does not equal its charge components.',
+     'BUSINESS_RULE — vendor 1 EXCLUDES the three surcharges. Applying vendor 2 eight-term formula to both produced a 10.63% false FAIL.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'business', 'total_equals_sum_of_charges_v2', 10.0, 0.0, 5, FALSE,
+     'Vendor 2 total_amount does not equal its eight charge components.',
+     'BUSINESS_RULE — vendor 2 includes improvement, congestion and CBD surcharges.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'trip_distance_not_negative', 0.0, 0.0, 5, FALSE,
+     'trip_distance is below zero.',
+     'BUSINESS_RULE — a negative distance is a bad row.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'completeness', 'trip_distance_not_null', 10.0, 0.0, 5, FALSE,
+     'Column trip distance is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'trip_distance_plausible', 10.0, 0.0, 5, FALSE,
+     'trip_distance exceeds a plausible maximum.',
+     'OBSERVED — a runaway odometer value.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'trip_type_in_domain', 10.0, 0.0, 5, FALSE,
+     'Value of trip type is outside the set the data dictionary defines.',
+     'SOURCE_SPEC — TLC publishes the code list; a value outside it is a source change or a bad row.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'validity', 'vendor_id_in_domain', 10.0, 0.0, 5, FALSE,
+     'Value of vendor id is outside the set the data dictionary defines.',
+     'SOURCE_SPEC — TLC publishes the code list; a value outside it is a source change or a bad row.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'green_taxi', 'completeness', 'vendor_id_not_null', 10.0, 0.0, 5, FALSE,
+     'Column vendor id is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'taxi_zones', 'business', 'airport_zones_present', 0.0, 0.0, 0, FALSE,
+     'The JFK, LaGuardia and Newark zones are missing.',
+     'BUSINESS_RULE — airport trips are a headline segment; their absence means a bad copy.', 'FLAG', 'scalar (1)'),
+    ('preload', 'taxi_zones', 'validity', 'borough_in_domain', 10.0, 0.0, 5, FALSE,
+     'borough is outside the five boroughs plus Unknown/EWR.',
+     'SOURCE_SPEC — TLC publishes the list.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'taxi_zones', 'completeness', 'borough_not_null', 10.0, 0.0, 5, FALSE,
+     'borough is NULL in the landed lookup.',
+     'SOURCE_SPEC — required for the borough breakdown.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'taxi_zones', 'schema', 'expected_columns_present', 0.0, 0.0, 0, FALSE,
+     'A column the declared schema names is missing from the file.',
+     'PIPELINE_INVARIANT — read_files() with a declared schema maps CSV BY POSITION. This compares as a set, so it catches a rename but NOT a reorder. Known gap.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'taxi_zones', 'completeness', 'expected_file_present', 0.0, 0.0, 0, FALSE,
+     'The file this batch needs is not in the landing volume.',
+     'PIPELINE_INVARIANT — nothing downstream can proceed without it, and the failure is cheapest to report here.', 'FLAG', 'scalar (1)'),
+    ('preload', 'taxi_zones', 'completeness', 'file_not_empty', 0.0, 0.0, 0, FALSE,
+     'The landed file has zero rows.',
+     'PIPELINE_INVARIANT — a zero-byte download looks like a successful ingestion.', 'FLAG', 'scalar (1)'),
+    ('preload', 'taxi_zones', 'validity', 'location_id_in_range', 10.0, 0.0, 5, FALSE,
+     'location_id is outside 1-265.',
+     'SOURCE_SPEC — the published id range.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'taxi_zones', 'completeness', 'location_id_not_null', 0.0, 0.0, 0, TRUE,
+     'Column location id is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'QUARANTINE', 'rows in the landed file'),
+    ('preload', 'taxi_zones', 'uniqueness', 'location_id_unique', 0.0, 0.0, 0, TRUE,
+     'Duplicate location_id in the lookup.',
+     'PIPELINE_INVARIANT — the lookup is a primary key or it is nothing. No row floor.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'taxi_zones', 'business', 'lookup_has_265_zones', 0.0, 0.0, 0, FALSE,
+     'The zone lookup does not hold exactly 265 rows.',
+     'SOURCE_SPEC — TLC publishes 265 zones. A different number is a source change.', 'FLAG', 'scalar (1)'),
+    ('preload', 'taxi_zones', 'schema', 'no_unexpected_columns', 100.0, 0.0, 0, FALSE,
+     'The file carries a column the schema does not name.',
+     'ADVISORY — a new upstream column is information, not a defect, but it is how a positional mapping silently shifts.', 'IGNORE', 'rows in the landed file'),
+    ('preload', 'taxi_zones', 'validity', 'service_zone_in_domain', 10.0, 0.0, 5, FALSE,
+     'service_zone is outside the published set.',
+     'SOURCE_SPEC — TLC publishes the list.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'taxi_zones', 'completeness', 'service_zone_not_null', 10.0, 0.0, 5, FALSE,
+     'service_zone is NULL in the landed lookup.',
+     'SOURCE_SPEC — required for the service-zone breakdown.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'taxi_zones', 'completeness', 'zone_name_not_null', 10.0, 0.0, 5, FALSE,
+     'zone_name is NULL in the landed lookup.',
+     'SOURCE_SPEC — required for the zone label.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'completeness', 'apparent_temp_not_null', 10.0, 0.0, 5, FALSE,
+     'Column apparent temp is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'apparent_temp_parses', 10.0, 5.0, 5, FALSE,
+     'Value of apparent temp is present in the source text and does not convert to DOUBLE.',
+     'SOURCE_SPEC — the feed is text. A value that will not parse is a real loss; a value the feed never sent is not. 5/10 pairs warn and fail.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'cloud_cover_0_to_100', 10.0, 0.0, 5, FALSE,
+     'Cloud cover is outside 0-100.',
+     'SOURCE_SPEC — it is a percentage.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'completeness', 'cloud_cover_not_null', 10.0, 0.0, 5, FALSE,
+     'Column cloud cover is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'cloud_cover_parses', 10.0, 5.0, 5, FALSE,
+     'Value of cloud cover is present in the source text and does not convert to DOUBLE.',
+     'SOURCE_SPEC — the feed is text. A value that will not parse is a real loss; a value the feed never sent is not. 5/10 pairs warn and fail.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'completeness', 'date_not_null', 0.0, 0.0, 0, TRUE,
+     'The date column is NULL in the landed weather file.',
+     'PIPELINE_INVARIANT — it is the MERGE key. Blocking at preload: nothing downstream can key on it.', 'QUARANTINE', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'date_parses', 0.0, 0.0, 0, TRUE,
+     'The date column is present and will not convert to TIMESTAMP.',
+     'PIPELINE_INVARIANT — an unparseable key is the same defect as a missing one.', 'QUARANTINE', 'rows in the landed file'),
+    ('preload', 'weather', 'schema', 'expected_columns_present', 0.0, 0.0, 0, FALSE,
+     'A column the declared schema names is missing from the file.',
+     'PIPELINE_INVARIANT — read_files() with a declared schema maps CSV BY POSITION. This compares as a set, so it catches a rename but NOT a reorder. Known gap.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'completeness', 'expected_file_present', 0.0, 0.0, 0, FALSE,
+     'The file this batch needs is not in the landing volume.',
+     'PIPELINE_INVARIANT — nothing downstream can proceed without it, and the failure is cheapest to report here.', 'FLAG', 'scalar (1)'),
+    ('preload', 'weather', 'completeness', 'file_not_empty', 0.0, 0.0, 0, FALSE,
+     'The landed file has zero rows.',
+     'PIPELINE_INVARIANT — a zero-byte download looks like a successful ingestion.', 'FLAG', 'scalar (1)'),
+    ('preload', 'weather', 'consistency', 'gusts_at_least_wind_speed', 10.0, 0.0, 5, FALSE,
+     'Wind gust is below sustained wind speed.',
+     'SOURCE_SPEC — physically impossible; a gust is a peak.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'hour_within_batch_month', 100.0, 0.0, 5, FALSE,
+     'An hour in the file falls outside the batch month.',
+     'ADVISORY — same UTC boundary spill, measured on the raw file.', 'IGNORE', 'rows in the landed file'),
+    ('preload', 'weather', 'consistency', 'month_agrees_with_date', 10.0, 0.0, 5, FALSE,
+     'The month column disagrees with the date column.',
+     'ADVISORY — same cause as the boundary spill.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'completeness', 'month_not_null', 10.0, 0.0, 5, FALSE,
+     'The month column is NULL in the landed weather file.',
+     'SOURCE_SPEC — used to confirm the file is the month it claims.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'schema', 'no_unexpected_columns', 100.0, 0.0, 0, FALSE,
+     'The file carries a column the schema does not name.',
+     'ADVISORY — a new upstream column is information, not a defect, but it is how a positional mapping silently shifts.', 'IGNORE', 'rows in the landed file'),
+    ('preload', 'weather', 'uniqueness', 'one_row_per_hour', 100.0, 0.0, 0, FALSE,
+     'More than one row for the same hour.',
+     'PIPELINE_INVARIANT — the hour is the MERGE key. No row floor: one duplicate is the defect.', 'IGNORE', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'precip_probability_0_to_100', 10.0, 0.0, 5, FALSE,
+     'Precipitation probability is outside 0-100.',
+     'SOURCE_SPEC — it is a percentage.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'completeness', 'precip_probability_not_null', 10.0, 0.0, 5, FALSE,
+     'Column precip probability is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'precip_probability_parses', 10.0, 5.0, 5, FALSE,
+     'Value of precip probability is present in the source text and does not convert to DOUBLE.',
+     'SOURCE_SPEC — the feed is text. A value that will not parse is a real loss; a value the feed never sent is not. 5/10 pairs warn and fail.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'rain_not_negative', 10.0, 0.0, 5, FALSE,
+     'Rain is below zero.',
+     'SOURCE_SPEC — physically impossible.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'completeness', 'rain_not_null', 10.0, 0.0, 5, FALSE,
+     'Column rain is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'rain_parses', 10.0, 5.0, 5, FALSE,
+     'Value of rain is present in the source text and does not convert to DOUBLE.',
+     'SOURCE_SPEC — the feed is text. A value that will not parse is a real loss; a value the feed never sent is not. 5/10 pairs warn and fail.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'completeness', 'temperature_not_null', 10.0, 0.0, 5, FALSE,
+     'Column temperature is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'temperature_parses', 10.0, 5.0, 5, FALSE,
+     'Value of temperature is present in the source text and does not convert to DOUBLE.',
+     'SOURCE_SPEC — the feed is text. A value that will not parse is a real loss; a value the feed never sent is not. 5/10 pairs warn and fail.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'temperature_plausible', 10.0, 0.0, 5, FALSE,
+     'Temperature is outside a plausible range for New York.',
+     'OBSERVED — catches a unit swap between C and F.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'visibility_not_negative', 10.0, 0.0, 5, FALSE,
+     'Visibility is below zero.',
+     'SOURCE_SPEC — physically impossible.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'completeness', 'visibility_not_null', 10.0, 0.0, 5, FALSE,
+     'Column visibility is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'visibility_parses', 10.0, 5.0, 5, FALSE,
+     'Value of visibility is present in the source text and does not convert to DOUBLE.',
+     'SOURCE_SPEC — the feed is text. A value that will not parse is a real loss; a value the feed never sent is not. 5/10 pairs warn and fail.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'weather_code_in_wmo_domain', 10.0, 0.0, 5, FALSE,
+     'weather_code is outside the WMO code list.',
+     'SOURCE_SPEC — Open-Meteo publishes the WMO codes it emits.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'completeness', 'weather_code_not_null', 10.0, 0.0, 5, FALSE,
+     'Column weather code is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'weather_code_parses', 10.0, 5.0, 5, FALSE,
+     'Value of weather code is present in the source text and does not convert to DOUBLE.',
+     'SOURCE_SPEC — the feed is text. A value that will not parse is a real loss; a value the feed never sent is not. 5/10 pairs warn and fail.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'completeness', 'wind_gusts_not_null', 10.0, 0.0, 5, FALSE,
+     'Column wind gusts is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'wind_gusts_parses', 10.0, 5.0, 5, FALSE,
+     'Value of wind gusts is present in the source text and does not convert to DOUBLE.',
+     'SOURCE_SPEC — the feed is text. A value that will not parse is a real loss; a value the feed never sent is not. 5/10 pairs warn and fail.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'wind_speed_not_negative', 10.0, 0.0, 5, FALSE,
+     'Wind speed is below zero.',
+     'SOURCE_SPEC — physically impossible.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'completeness', 'wind_speed_not_null', 10.0, 0.0, 5, FALSE,
+     'Column wind speed is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'FLAG', 'rows in the landed file'),
+    ('preload', 'weather', 'validity', 'wind_speed_parses', 10.0, 5.0, 5, FALSE,
+     'Value of wind speed is present in the source text and does not convert to DOUBLE.',
+     'SOURCE_SPEC — the feed is text. A value that will not parse is a real loss; a value the feed never sent is not. 5/10 pairs warn and fail.', 'FLAG', 'rows in the landed file'),
+-- ---------- bronze ----------
+    ('bronze', 'green_taxi', 'consistency', 'dropoff_zone_exists_in_lookup', 0.0, 0.0, 5, FALSE,
+     'A dropoff zone id has no row in the lookup.',
+     'PIPELINE_INVARIANT — the join Gold depends on.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'business', 'every_landed_file_is_loaded', 0.0, 0.0, 5, TRUE,
+     'A file present in the volume has no rows in the table.',
+     'PIPELINE_INVARIANT — a skipped file is invisible to every row-level check.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'ingestion_time_recorded', 10.0, 0.0, 5, FALSE,
+     'Lineage column ingestion_time is NULL.',
+     'PIPELINE_INVARIANT — the dedup ORDER BY depends on it.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_congestion_surcharge', 0.0, 0.0, 5, TRUE,
+     'Column congestion surcharge is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_do_location_id', 0.0, 0.0, 5, TRUE,
+     'Column do location id is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_dropoff_datetime', 0.0, 0.0, 5, TRUE,
+     'Column dropoff datetime is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_extra', 0.0, 0.0, 5, TRUE,
+     'Column extra is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_fare_amount', 0.0, 0.0, 5, TRUE,
+     'Column fare amount is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_improvement_surcharge', 0.0, 0.0, 5, TRUE,
+     'Column improvement surcharge is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_mta_tax', 0.0, 0.0, 5, TRUE,
+     'Column mta tax is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_passenger_count', 0.0, 0.0, 5, TRUE,
+     'Column passenger count is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_payment_type', 0.0, 0.0, 5, TRUE,
+     'Column payment type is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_pickup_datetime', 0.0, 0.0, 5, TRUE,
+     'Column pickup datetime is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_pu_location_id', 0.0, 0.0, 5, TRUE,
+     'Column pu location id is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_ratecode_id', 0.0, 0.0, 5, TRUE,
+     'Column ratecode id is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_store_and_fwd_flag', 0.0, 0.0, 5, TRUE,
+     'Column store and fwd flag is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_tip_amount', 0.0, 0.0, 5, TRUE,
+     'Column tip amount is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_tolls_amount', 0.0, 0.0, 5, TRUE,
+     'Column tolls amount is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_total_amount', 0.0, 0.0, 5, TRUE,
+     'Column total amount is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_trip_distance', 0.0, 0.0, 5, TRUE,
+     'Column trip distance is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_trip_type', 0.0, 0.0, 5, TRUE,
+     'Column trip type is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_vendor_id', 0.0, 0.0, 5, TRUE,
+     'Column vendor id is populated in the source file and NULL in the table for the same batch.',
+     'PIPELINE_INVARIANT — the MERGE casts this column. A value the source had and the table does not is a cast that failed, not a source gap. 5/10 because a source that is a few percent unparseable is a known condition, not a broken load.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'consistency', 'pickup_zone_exists_in_lookup', 0.0, 0.0, 5, FALSE,
+     'A pickup zone id has no row in the lookup.',
+     'PIPELINE_INVARIANT — the join Gold depends on, tested before Gold is built.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'business', 'row_count_matches_source', 0.0, 0.0, 5, TRUE,
+     'Rows in the table for this batch differ from rows in the file.',
+     'PIPELINE_INVARIANT — not recoverable by re-running: the MERGE matches on source_file, so a partial load stays partial.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'source_file_recorded', 0.0, 0.0, 5, FALSE,
+     'Lineage column source_file is NULL.',
+     'PIPELINE_INVARIANT — without it a row cannot be traced to a file and cannot be re-loaded.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'completeness', 'table_not_empty', 0.0, 0.0, 5, TRUE,
+     'The table has no rows for this batch.',
+     'PIPELINE_INVARIANT — the only check that reports emptiness. Every other check SKIPs on an empty batch rather than inventing its own failure from a NULL aggregate.', 'FLAG', 'scalar (1)'),
+    ('bronze', 'green_taxi', 'consistency', 'trips_with_unmatched_dropoff_zone', 100.0, 0.0, 5, FALSE,
+     'Trips whose dropoff zone does not resolve, in rows.',
+     'ADVISORY — the blast radius of the key-level check.', 'IGNORE', 'rows in the batch'),
+    ('bronze', 'green_taxi', 'consistency', 'trips_with_unmatched_pickup_zone', 100.0, 0.0, 5, FALSE,
+     'Trips whose pickup zone does not resolve, in rows.',
+     'ADVISORY — the blast radius of the key-level check.', 'IGNORE', 'rows in the batch'),
+    ('bronze', 'taxi_zones', 'completeness', 'ingestion_time_recorded', 10.0, 0.0, 5, FALSE,
+     'Lineage column ingestion_time is NULL.',
+     'PIPELINE_INVARIANT — the dedup ORDER BY depends on it.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'taxi_zones', 'uniqueness', 'location_id_unique', 0.0, 0.0, 0, TRUE,
+     'Duplicate location_id in the lookup.',
+     'PIPELINE_INVARIANT — the lookup is a primary key or it is nothing. No row floor.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'taxi_zones', 'completeness', 'source_file_recorded', 0.0, 0.0, 5, FALSE,
+     'Lineage column source_file is NULL.',
+     'PIPELINE_INVARIANT — without it a row cannot be traced to a file and cannot be re-loaded.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'taxi_zones', 'completeness', 'table_not_empty', 0.0, 0.0, 5, TRUE,
+     'The table has no rows for this batch.',
+     'PIPELINE_INVARIANT — the only check that reports emptiness. Every other check SKIPs on an empty batch rather than inventing its own failure from a NULL aggregate.', 'FLAG', 'scalar (1)'),
+    ('bronze', 'taxi_zones', 'business', 'zone_names_shared_is_3', 100.0, 0.0, 5, FALSE,
+     'The count of zone names shared across boroughs is not 3.',
+     'SOURCE_SPEC — TLC reuses three names across boroughs. A different count means the lookup changed shape.', 'IGNORE', 'scalar (1)'),
+    ('bronze', 'weather', 'business', 'every_landed_file_is_loaded', 0.0, 0.0, 5, TRUE,
+     'A file present in the volume has no rows in the table.',
+     'PIPELINE_INVARIANT — a skipped file is invisible to every row-level check.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'weather', 'validity', 'hour_within_covered_months', 100.0, 0.0, 5, FALSE,
+     'An hour falls outside the months this table covers.',
+     'ADVISORY — the weather feed is UTC and the project is New York, so boundary hours legitimately land either side. Worth seeing, not gating on.', 'IGNORE', 'rows in the batch'),
+    ('bronze', 'weather', 'completeness', 'ingestion_time_recorded', 10.0, 0.0, 5, FALSE,
+     'Lineage column ingestion_time is NULL.',
+     'PIPELINE_INVARIANT — the dedup ORDER BY depends on it.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'weather', 'uniqueness', 'one_row_per_hour', 0.0, 0.0, 0, TRUE,
+     'More than one row for the same hour.',
+     'PIPELINE_INVARIANT — the hour is the MERGE key. No row floor: one duplicate is the defect.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'weather', 'business', 'row_count_matches_source', 0.0, 0.0, 5, TRUE,
+     'Rows in the table for this batch differ from rows in the file.',
+     'PIPELINE_INVARIANT — not recoverable by re-running: the MERGE matches on source_file, so a partial load stays partial.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'weather', 'consistency', 'source_file_is_not_placeholder', 100.0, 0.0, 5, FALSE,
+     'source_file holds the literal parameter name.',
+     'PIPELINE_INVARIANT — happens when the notebook runs as plain SQL rather than through parameter substitution. Lineage is gone and nothing else notices.', 'IGNORE', 'scalar (1)'),
+    ('bronze', 'weather', 'completeness', 'source_file_recorded', 0.0, 0.0, 5, FALSE,
+     'Lineage column source_file is NULL.',
+     'PIPELINE_INVARIANT — without it a row cannot be traced to a file and cannot be re-loaded.', 'FLAG', 'rows in the batch'),
+    ('bronze', 'weather', 'uniqueness', 'source_rows_deduplicated', 100.0, 0.0, 5, FALSE,
+     'Duplicate source rows survived the MERGE.',
+     'PIPELINE_INVARIANT — a duplicated key fans out through every downstream join.', 'IGNORE', 'rows in the batch'),
+    ('bronze', 'weather', 'completeness', 'table_not_empty', 0.0, 0.0, 5, TRUE,
+     'The table has no rows for this batch.',
+     'PIPELINE_INVARIANT — the only check that reports emptiness. Every other check SKIPs on an empty batch rather than inventing its own failure from a NULL aggregate.', 'FLAG', 'scalar (1)'),
+-- ---------- silver ----------
+    ('silver', 'green_taxi_clean', 'validity', 'cash_trips_carry_no_tip', 0.0, 0.0, 5, FALSE,
+     'A cash trip records a tip.',
+     'BUSINESS_RULE — TLC does not capture cash tips; a value here is a data entry artefact.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'validity', 'coalesced_codes_not_null', 0.0, 0.0, 5, FALSE,
+     'A code Silver coalesces is still NULL.',
+     'PIPELINE_INVARIANT — asserts the COALESCE ran.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'dedup_removal_rate', 10.0, 0.0, 5, FALSE,
+     'Share of Bronze rows removed by Silver deduplication.',
+     'ADVISORY — a number that climbs run over run means the key is getting coarser.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'validity', 'dq_status_in_domain', 0.0, 0.0, 5, TRUE,
+     'dq_status holds a value outside PASS/WARN/FAIL.',
+     'PIPELINE_INVARIANT — a fourth value silently escapes every downstream filter.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'completeness', 'dq_status_populated', 0.0, 0.0, 5, TRUE,
+     'dq_status is NULL.',
+     'PIPELINE_INVARIANT — Gold filters on it; a NULL classifies as nothing.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'dropoff_zone_exists_in_lookup', 0.0, 0.0, 5, FALSE,
+     'A dropoff zone id has no row in the lookup.',
+     'PIPELINE_INVARIANT — the join Gold depends on.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'every_bronze_file_present', 0.0, 0.0, 5, TRUE,
+     'A source file in Bronze has no rows in Silver.',
+     'PIPELINE_INVARIANT — a dropped file passes every row-level check.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'fail_rows_carry_a_fail_issue', 0.0, 0.0, 5, TRUE,
+     'A FAIL row names no FAIL: issue.',
+     'PIPELINE_INVARIANT — the row is quarantined with no stated reason.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'future_timestamps_are_quarantined', 0.0, 0.0, 5, TRUE,
+     'A pickup or dropoff after the current time did not receive the FAIL label.',
+     'PIPELINE_INVARIANT — the backstop for a row whose source_file is unparseable, so the window rules have nothing to work with. Needs no literal: no trip can be in the future, in any dataset.', 'QUARANTINE', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'completeness', 'ingestion_time_recorded', 10.0, 0.0, 5, FALSE,
+     'Lineage column ingestion_time is NULL.',
+     'PIPELINE_INVARIANT — the dedup ORDER BY depends on it.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'null_timestamps_are_quarantined', 0.0, 0.0, 5, TRUE,
+     'A row meeting the null timestamps condition did not receive the FAIL label.',
+     'PIPELINE_INVARIANT — this can only fail if the classification CASE is wrong. Gold filters on dq_status, so a row that escaped the label is in Gold being counted.', 'QUARANTINE', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'uniqueness', 'one_row_per_merge_key', 0.0, 0.0, 5, TRUE,
+     'More than one row for the same merge key in the target.',
+     'PIPELINE_INVARIANT — the MERGE would update the same row twice per run.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'out_of_batch_dropoffs_are_quarantined', 0.0, 0.0, 5, TRUE,
+     'A dropoff more than a month outside its own source file month did not receive the FAIL label.',
+     'PIPELINE_INVARIANT — the dropoff had no era rule at all. A 2026 pickup with a 2009 dropoff passed every rule and still set the dim_date lower bound, producing a 6,301-day calendar.', 'QUARANTINE', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'out_of_batch_pickups_are_quarantined', 0.0, 0.0, 5, TRUE,
+     'A pickup more than a month outside its own source file month did not receive the FAIL label.',
+     'PIPELINE_INVARIANT — the window is derived per row from source_file, not a hardcoded era. Replaced out_of_era_pickups_are_quarantined, which tested pickup < 2009-01-01: a literal the cleaning notebook had stopped using, so the check stayed green while testing nothing.', 'QUARANTINE', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'pass_rows_carry_no_issues', 0.0, 0.0, 5, TRUE,
+     'A PASS row has a non-empty issue array.',
+     'PIPELINE_INVARIANT — can only fail if the classification CASE is wrong.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'validity', 'passenger_count_at_least_one', 0.0, 0.0, 5, FALSE,
+     'passenger_count is below one after cleaning.',
+     'PIPELINE_INVARIANT — Silver clamps; this asserts the clamp ran.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'pickup_zone_exists_in_lookup', 0.0, 0.0, 5, FALSE,
+     'A pickup zone id has no row in the lookup.',
+     'PIPELINE_INVARIANT — the join Gold depends on, tested before Gold is built.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'completeness', 'qc_array_not_null', 0.0, 0.0, 5, TRUE,
+     'qc_error_descriptions is NULL rather than an empty array.',
+     'PIPELINE_INVARIANT — NULL and empty behave differently in exists() and size().', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'validity', 'qc_entries_carry_severity_prefix', 0.0, 0.0, 5, TRUE,
+     'An issue entry starts with neither FAIL: nor WARN:.',
+     'PIPELINE_INVARIANT — a forgotten prefix silently downgrades a FAIL row to WARN. Seven characters, invisible without this check.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'business', 'quarantine_rate_within_limit', 10.0, 0.0, 5, FALSE,
+     'Share of rows Silver classified FAIL.',
+     'OBSERVED — a rate that jumps between batches is a source change, not a bad batch.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'revenue_preserved', 0.0, 0.0, 5, TRUE,
+     'Total revenue differs between layers beyond 0.1% or $1.',
+     'PIPELINE_INVARIANT — a row count can match while values shift. Money is the check that notices.', 'FLAG', 'scalar (1)'),
+    ('silver', 'green_taxi_clean', 'consistency', 'reversed_trips_are_quarantined', 0.0, 0.0, 5, TRUE,
+     'A row meeting the reversed trips condition did not receive the FAIL label.',
+     'PIPELINE_INVARIANT — this can only fail if the classification CASE is wrong. Gold filters on dq_status, so a row that escaped the label is in Gold being counted.', 'QUARANTINE', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'business', 'rows_carrying_a_warning', 100.0, 0.0, 5, FALSE,
+     'Share of rows carrying at least one WARN issue.',
+     'ADVISORY — a level to watch, not a threshold to pass.', 'IGNORE', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'rows_reconcile_with_bronze', 0.0, 0.0, 5, TRUE,
+     'Silver row count differs from deduplicated Bronze.',
+     'PIPELINE_INVARIANT — computed with Silver OWN key, nulling out-of-range ids before partitioning, so it measures the transform rather than the dedup.', 'FLAG', 'scalar (1)'),
+    ('silver', 'green_taxi_clean', 'completeness', 'silver_at_recorded', 0.0, 0.0, 5, TRUE,
+     'Lineage column silver_at is NULL.',
+     'PIPELINE_INVARIANT — records when the row was last cleaned.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'business', 'silver_retention_rate', 100.0, 0.0, 5, FALSE,
+     'Share of Bronze rows that survived into Silver.',
+     'ADVISORY — the headline number for a batch.', 'IGNORE', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'completeness', 'source_file_recorded', 0.0, 0.0, 5, TRUE,
+     'Lineage column source_file is NULL.',
+     'PIPELINE_INVARIANT — without it a row cannot be traced to a file and cannot be re-loaded.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'validity', 'surcharges_not_negative', 0.0, 0.0, 5, FALSE,
+     'A surcharge is negative after cleaning.',
+     'PIPELINE_INVARIANT — Silver clamps to zero; this asserts the clamp ran.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'completeness', 'table_not_empty', 0.0, 0.0, 5, TRUE,
+     'The table has no rows for this batch.',
+     'PIPELINE_INVARIANT — the only check that reports emptiness. Every other check SKIPs on an empty batch rather than inventing its own failure from a NULL aggregate.', 'FLAG', 'scalar (1)'),
+    ('silver', 'green_taxi_clean', 'business', 'total_equals_sum_of_charges_v1', 10.0, 0.0, 5, FALSE,
+     'Vendor 1 total_amount does not equal its charge components.',
+     'BUSINESS_RULE — vendor 1 EXCLUDES the three surcharges. Applying vendor 2 eight-term formula to both produced a 10.63% false FAIL.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'business', 'total_equals_sum_of_charges_v2', 10.0, 0.0, 5, FALSE,
+     'Vendor 2 total_amount does not equal its eight charge components.',
+     'BUSINESS_RULE — vendor 2 includes improvement, congestion and CBD surcharges.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'trip_hour_has_weather', 10.0, 0.0, 5, FALSE,
+     'A trip hour in this batch has no weather row.',
+     'PIPELINE_INVARIANT — the join Gold depends on, tested before Gold is built.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'trip_hour_has_weather_any_batch', 100.0, 0.0, 5, FALSE,
+     'A trip hour has no weather row in ANY batch.',
+     'ADVISORY — the twin of the above. Equal counts prove the hours are genuinely missing rather than spilling across a batch boundary.', 'IGNORE', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'trips_with_unmatched_dropoff_zone', 100.0, 0.0, 5, FALSE,
+     'Trips whose dropoff zone does not resolve, in rows.',
+     'ADVISORY — the blast radius of the key-level check.', 'IGNORE', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'trips_with_unmatched_pickup_zone', 100.0, 0.0, 5, FALSE,
+     'Trips whose pickup zone does not resolve, in rows.',
+     'ADVISORY — the blast radius of the key-level check.', 'IGNORE', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'unresolvable_zones_are_quarantined', 0.0, 0.0, 5, TRUE,
+     'A row meeting the unresolvable zones condition did not receive the FAIL label.',
+     'PIPELINE_INVARIANT — this can only fail if the classification CASE is wrong. Gold filters on dq_status, so a row that escaped the label is in Gold being counted.', 'QUARANTINE', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'untraceable_rows_are_quarantined', 0.0, 0.0, 5, TRUE,
+     'A row with no usable lineage is not labelled FAIL.',
+     'PIPELINE_INVARIANT — an untraceable row cannot be re-loaded or explained.', 'QUARANTINE', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'consistency', 'warn_rows_carry_only_warn_issues', 0.0, 0.0, 5, TRUE,
+     'A WARN row carries a FAIL: issue, or none at all.',
+     'PIPELINE_INVARIANT — a mislabelled row is in Gold being counted.', 'FLAG', 'rows in the batch'),
+    ('silver', 'green_taxi_clean', 'validity', 'zones_within_1_to_265', 0.0, 0.0, 5, FALSE,
+     'A location id outside 1-265 survived cleaning.',
+     'PIPELINE_INVARIANT — Silver nulls them; this asserts it did.', 'FLAG', 'rows in the batch'),
+    ('silver', 'taxi_zones_clean', 'business', 'airport_zones_present', 0.0, 0.0, 5, FALSE,
+     'The JFK, LaGuardia and Newark zones are missing.',
+     'BUSINESS_RULE — airport trips are a headline segment; their absence means a bad copy.', 'FLAG', 'scalar (1)'),
+    ('silver', 'taxi_zones_clean', 'validity', 'borough_in_domain', 10.0, 0.0, 5, FALSE,
+     'borough is outside the five boroughs plus Unknown/EWR.',
+     'SOURCE_SPEC — TLC publishes the list.', 'FLAG', 'rows in the batch'),
+    ('silver', 'taxi_zones_clean', 'completeness', 'borough_not_blank', 0.0, 0.0, 5, FALSE,
+     'Column borough is NULL or trims to an empty string.',
+     'SOURCE_SPEC — a blank label reads as a real category in a group-by.', 'FLAG', 'rows in the batch'),
+    ('silver', 'taxi_zones_clean', 'validity', 'location_id_in_range', 0.0, 0.0, 5, FALSE,
+     'location_id is outside 1-265.',
+     'SOURCE_SPEC — the published id range.', 'FLAG', 'rows in the batch'),
+    ('silver', 'taxi_zones_clean', 'completeness', 'location_id_not_null', 0.0, 0.0, 0, TRUE,
+     'Column location id is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'QUARANTINE', 'rows in the batch'),
+    ('silver', 'taxi_zones_clean', 'uniqueness', 'location_id_unique', 0.0, 0.0, 0, TRUE,
+     'Duplicate location_id in the lookup.',
+     'PIPELINE_INVARIANT — the lookup is a primary key or it is nothing. No row floor.', 'FLAG', 'rows in the batch'),
+    ('silver', 'taxi_zones_clean', 'business', 'lookup_has_265_zones', 0.0, 0.0, 5, FALSE,
+     'The zone lookup does not hold exactly 265 rows.',
+     'SOURCE_SPEC — TLC publishes 265 zones. A different number is a source change.', 'FLAG', 'scalar (1)'),
+    ('silver', 'taxi_zones_clean', 'consistency', 'rows_reconcile_with_bronze', 0.0, 0.0, 5, FALSE,
+     'Silver row count differs from deduplicated Bronze.',
+     'PIPELINE_INVARIANT — computed with Silver OWN key, nulling out-of-range ids before partitioning, so it measures the transform rather than the dedup.', 'FLAG', 'scalar (1)'),
+    ('silver', 'taxi_zones_clean', 'validity', 'service_zone_in_domain', 10.0, 0.0, 5, FALSE,
+     'service_zone is outside the published set.',
+     'SOURCE_SPEC — TLC publishes the list.', 'FLAG', 'rows in the batch'),
+    ('silver', 'taxi_zones_clean', 'completeness', 'service_zone_not_blank', 0.0, 0.0, 5, FALSE,
+     'Column service zone is NULL or trims to an empty string.',
+     'SOURCE_SPEC — a blank label reads as a real category in a group-by.', 'FLAG', 'rows in the batch'),
+    ('silver', 'taxi_zones_clean', 'completeness', 'silver_at_recorded', 0.0, 0.0, 5, FALSE,
+     'Lineage column silver_at is NULL.',
+     'PIPELINE_INVARIANT — records when the row was last cleaned.', 'FLAG', 'rows in the batch'),
+    ('silver', 'taxi_zones_clean', 'completeness', 'source_file_recorded', 0.0, 0.0, 5, FALSE,
+     'Lineage column source_file is NULL.',
+     'PIPELINE_INVARIANT — without it a row cannot be traced to a file and cannot be re-loaded.', 'FLAG', 'rows in the batch'),
+    ('silver', 'taxi_zones_clean', 'completeness', 'table_not_empty', 0.0, 0.0, 5, TRUE,
+     'The table has no rows for this batch.',
+     'PIPELINE_INVARIANT — the only check that reports emptiness. Every other check SKIPs on an empty batch rather than inventing its own failure from a NULL aggregate.', 'FLAG', 'scalar (1)'),
+    ('silver', 'taxi_zones_clean', 'business', 'two_unknown_zones_present', 0.0, 0.0, 5, FALSE,
+     'Ids 264 and 265 are not both present.',
+     'SOURCE_SPEC — they are how an unresolvable pickup stays joinable instead of becoming a NULL that drops out of an inner join.', 'FLAG', 'scalar (1)'),
+    ('silver', 'taxi_zones_clean', 'completeness', 'zone_name_not_blank', 0.0, 0.0, 5, FALSE,
+     'Column zone name is NULL or trims to an empty string.',
+     'SOURCE_SPEC — a blank label reads as a real category in a group-by.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'business', 'all_expected_days_present', 0.0, 0.0, 5, FALSE,
+     'A day in the covered months has no weather rows.',
+     'PIPELINE_INVARIANT — a gap in the hourly series.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'validity', 'apparent_temp_parsed', 10.0, 0.0, 5, FALSE,
+     'Value of apparent temp was present in Bronze and is NULL in Silver — a parse loss, not a source gap.',
+     'PIPELINE_INVARIANT — measured against Bronze by joining on date, so a blank cell in the CSV is not counted as a parse failure.', 'FLAG', 'rows comparable against Bronze'),
+    ('silver', 'weather_clean', 'validity', 'cloud_cover_0_to_100', 10.0, 0.0, 5, FALSE,
+     'Cloud cover is outside 0-100.',
+     'SOURCE_SPEC — it is a percentage.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'validity', 'cloud_cover_parsed', 10.0, 0.0, 5, FALSE,
+     'Value of cloud cover was present in Bronze and is NULL in Silver — a parse loss, not a source gap.',
+     'PIPELINE_INVARIANT — measured against Bronze by joining on date, so a blank cell in the CSV is not counted as a parse failure.', 'FLAG', 'rows comparable against Bronze'),
+    ('silver', 'weather_clean', 'consistency', 'description_known_for_code', 10.0, 0.0, 5, FALSE,
+     'A weather code has no mapped description.',
+     'SOURCE_SPEC — tolerated: the cleaning already WARNs and keeps the row. A code outside the CASE is the source using a value we have not mapped, not a broken transformation.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'consistency', 'description_matches_code', 0.0, 0.0, 5, FALSE,
+     'The stored description disagrees with its code mapping.',
+     'PIPELINE_INVARIANT — CASE drift, same class as the denormalised labels in Gold.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'validity', 'dq_status_in_domain', 0.0, 0.0, 5, TRUE,
+     'dq_status holds a value outside PASS/WARN/FAIL.',
+     'PIPELINE_INVARIANT — a fourth value silently escapes every downstream filter.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'completeness', 'dq_status_populated', 0.0, 0.0, 5, TRUE,
+     'dq_status is NULL.',
+     'PIPELINE_INVARIANT — Gold filters on it; a NULL classifies as nothing.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'consistency', 'fail_rows_carry_a_fail_issue', 0.0, 0.0, 5, TRUE,
+     'A FAIL row names no FAIL: issue.',
+     'PIPELINE_INVARIANT — the row is quarantined with no stated reason.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'consistency', 'gusts_at_least_wind_speed', 10.0, 0.0, 5, FALSE,
+     'Wind gust is below sustained wind speed.',
+     'SOURCE_SPEC — physically impossible; a gust is a peak.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'validity', 'hour_parsed', 0.0, 0.0, 0, FALSE,
+     'The date was present in Bronze and weather_hour is NULL in Silver.',
+     'PIPELINE_INVARIANT — a genuine parse loss, separated from a source gap.', 'FLAG', 'rows comparable against Bronze'),
+    ('silver', 'weather_clean', 'validity', 'hour_within_covered_months', 100.0, 0.0, 5, FALSE,
+     'An hour falls outside the months this table covers.',
+     'ADVISORY — the weather feed is UTC and the project is New York, so boundary hours legitimately land either side. Worth seeing, not gating on.', 'IGNORE', 'rows in the batch'),
+    ('silver', 'weather_clean', 'consistency', 'no_rows_invented_from_bronze', 0.0, 0.0, 5, FALSE,
+     'Silver holds a weather hour Bronze does not.',
+     'PIPELINE_INVARIANT — the transform may drop or keep, never invent.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'consistency', 'null_hours_are_quarantined', 0.0, 0.0, 5, TRUE,
+     'A row whose hour did not parse does not carry the FAIL label.',
+     'PIPELINE_INVARIANT — the cleaning KEEPS an unparseable hour and labels it. The promise is the label, not "the hour is never NULL".', 'QUARANTINE', 'rows in the batch'),
+    ('silver', 'weather_clean', 'uniqueness', 'one_row_per_hour', 0.0, 0.0, 0, TRUE,
+     'More than one row for the same hour.',
+     'PIPELINE_INVARIANT — the hour is the MERGE key. No row floor: one duplicate is the defect.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'consistency', 'pass_rows_carry_no_issues', 0.0, 0.0, 5, TRUE,
+     'A PASS row has a non-empty issue array.',
+     'PIPELINE_INVARIANT — can only fail if the classification CASE is wrong.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'validity', 'precip_probability_0_to_100', 10.0, 0.0, 5, FALSE,
+     'Precipitation probability is outside 0-100.',
+     'SOURCE_SPEC — it is a percentage.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'validity', 'precip_probability_parsed', 10.0, 0.0, 5, FALSE,
+     'Value of precip probability was present in Bronze and is NULL in Silver — a parse loss, not a source gap.',
+     'PIPELINE_INVARIANT — measured against Bronze by joining on date, so a blank cell in the CSV is not counted as a parse failure.', 'FLAG', 'rows comparable against Bronze'),
+    ('silver', 'weather_clean', 'completeness', 'qc_array_not_null', 0.0, 0.0, 5, TRUE,
+     'qc_error_descriptions is NULL rather than an empty array.',
+     'PIPELINE_INVARIANT — NULL and empty behave differently in exists() and size().', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'validity', 'qc_entries_carry_severity_prefix', 0.0, 0.0, 5, TRUE,
+     'An issue entry starts with neither FAIL: nor WARN:.',
+     'PIPELINE_INVARIANT — a forgotten prefix silently downgrades a FAIL row to WARN. Seven characters, invisible without this check.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'validity', 'rain_not_negative', 10.0, 0.0, 5, FALSE,
+     'Rain is below zero.',
+     'SOURCE_SPEC — physically impossible.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'validity', 'rain_parsed', 10.0, 0.0, 5, FALSE,
+     'Value of rain was present in Bronze and is NULL in Silver — a parse loss, not a source gap.',
+     'PIPELINE_INVARIANT — measured against Bronze by joining on date, so a blank cell in the CSV is not counted as a parse failure.', 'FLAG', 'rows comparable against Bronze'),
+    ('silver', 'weather_clean', 'completeness', 'silver_at_recorded', 0.0, 0.0, 5, FALSE,
+     'Lineage column silver_at is NULL.',
+     'PIPELINE_INVARIANT — records when the row was last cleaned.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'completeness', 'source_file_month_is_real', 100.0, 0.0, 5, FALSE,
+     'source_file_month is NULL or not a parseable month.',
+     'PIPELINE_INVARIANT — lineage for the weather feed.', 'IGNORE', 'rows in the batch'),
+    ('silver', 'weather_clean', 'completeness', 'table_not_empty', 0.0, 0.0, 5, TRUE,
+     'The table has no rows for this batch.',
+     'PIPELINE_INVARIANT — the only check that reports emptiness. Every other check SKIPs on an empty batch rather than inventing its own failure from a NULL aggregate.', 'FLAG', 'scalar (1)'),
+    ('silver', 'weather_clean', 'validity', 'temperature_parsed', 10.0, 0.0, 5, FALSE,
+     'Value of temperature was present in Bronze and is NULL in Silver — a parse loss, not a source gap.',
+     'PIPELINE_INVARIANT — measured against Bronze by joining on date, so a blank cell in the CSV is not counted as a parse failure.', 'FLAG', 'rows comparable against Bronze'),
+    ('silver', 'weather_clean', 'validity', 'temperature_plausible', 10.0, 0.0, 5, FALSE,
+     'Temperature is outside a plausible range for New York.',
+     'OBSERVED — catches a unit swap between C and F.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'validity', 'visibility_parsed', 10.0, 0.0, 5, FALSE,
+     'Value of visibility was present in Bronze and is NULL in Silver — a parse loss, not a source gap.',
+     'PIPELINE_INVARIANT — measured against Bronze by joining on date, so a blank cell in the CSV is not counted as a parse failure.', 'FLAG', 'rows comparable against Bronze'),
+    ('silver', 'weather_clean', 'consistency', 'warn_rows_carry_only_warn_issues', 0.0, 0.0, 5, TRUE,
+     'A WARN row carries a FAIL: issue, or none at all.',
+     'PIPELINE_INVARIANT — a mislabelled row is in Gold being counted.', 'FLAG', 'rows in the batch'),
+    ('silver', 'weather_clean', 'validity', 'weather_code_parsed', 10.0, 0.0, 5, FALSE,
+     'Value of weather code was present in Bronze and is NULL in Silver — a parse loss, not a source gap.',
+     'PIPELINE_INVARIANT — measured against Bronze by joining on date, so a blank cell in the CSV is not counted as a parse failure.', 'FLAG', 'rows comparable against Bronze'),
+    ('silver', 'weather_clean', 'completeness', 'weather_hour_populated', 100.0, 0.0, 5, FALSE,
+     'weather_hour is NULL, for any reason.',
+     'ADVISORY — the count, for information. The promise is null_hours_are_quarantined.', 'IGNORE', 'rows in the batch'),
+    ('silver', 'weather_clean', 'validity', 'wind_gusts_parsed', 10.0, 0.0, 5, FALSE,
+     'Value of wind gusts was present in Bronze and is NULL in Silver — a parse loss, not a source gap.',
+     'PIPELINE_INVARIANT — measured against Bronze by joining on date, so a blank cell in the CSV is not counted as a parse failure.', 'FLAG', 'rows comparable against Bronze'),
+    ('silver', 'weather_clean', 'validity', 'wind_speed_parsed', 10.0, 0.0, 5, FALSE,
+     'Value of wind speed was present in Bronze and is NULL in Silver — a parse loss, not a source gap.',
+     'PIPELINE_INVARIANT — measured against Bronze by joining on date, so a blank cell in the CSV is not counted as a parse failure.', 'FLAG', 'rows comparable against Bronze'),
+-- ---------- gold ----------
+    ('gold', 'dim_date', 'completeness', 'date_key_not_null', 0.0, 0.0, 0, TRUE,
+     'date_key is NULL.',
+     'PIPELINE_INVARIANT — the calendar primary key.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_date', 'uniqueness', 'date_key_unique', 0.0, 0.0, 0, TRUE,
+     'Duplicate date_key in the calendar.',
+     'PIPELINE_INVARIANT — a duplicate multiplies rows in every query joining to it.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_date', 'consistency', 'date_parts_match_full_date', 0.0, 0.0, 5, FALSE,
+     'year or month disagrees with full_date.',
+     'PIPELINE_INVARIANT — every attribute is a pure function of full_date.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_date', 'completeness', 'full_date_not_null', 0.0, 0.0, 5, FALSE,
+     'full_date is NULL in the calendar.',
+     'PIPELINE_INVARIANT — the join column for both date foreign keys.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_date', 'consistency', 'is_weekend_matches_day_of_week', 0.0, 0.0, 5, FALSE,
+     'is_weekend disagrees with day_of_week IN (1, 7).',
+     'PIPELINE_INVARIANT — dayofweek() is 1=Sunday..7=Saturday in Spark, NOT ISO. A weekend test written IN (6,7) gives Friday and Saturday.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_date', 'consistency', 'key_matches_full_date', 0.0, 0.0, 5, TRUE,
+     'date_key disagrees with yyyyMMdd of full_date.',
+     'PIPELINE_INVARIANT — two queries joining by different routes return different answers and neither looks wrong.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_date', 'completeness', 'no_missing_days', 0.0, 0.0, 5, TRUE,
+     'The calendar has a gap between its first and last date.',
+     'PIPELINE_INVARIANT — a hole silently drops every trip on that day from any inner join. The build checks this in a SELECT nobody reads.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_date', 'completeness', 'table_not_empty', 0.0, 0.0, 5, TRUE,
+     'The table has no rows for this batch.',
+     'PIPELINE_INVARIANT — the only check that reports emptiness. Every other check SKIPs on an empty batch rather than inventing its own failure from a NULL aggregate.', 'N/A', 'scalar (1)'),
+    ('gold', 'dim_taxi_zone', 'completeness', 'borough_not_blank', 0.0, 0.0, 5, FALSE,
+     'Column borough is NULL or trims to an empty string.',
+     'SOURCE_SPEC — a blank label reads as a real category in a group-by.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_taxi_zone', 'validity', 'location_id_in_range', 0.0, 0.0, 5, FALSE,
+     'location_id is outside 1-265.',
+     'SOURCE_SPEC — the published id range.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_taxi_zone', 'completeness', 'location_id_not_null', 0.0, 0.0, 0, TRUE,
+     'Column location id is NULL.',
+     'SOURCE_SPEC — the column is required for the row to be usable downstream.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_taxi_zone', 'uniqueness', 'location_id_unique', 0.0, 0.0, 0, TRUE,
+     'Duplicate location_id in the lookup.',
+     'PIPELINE_INVARIANT — the lookup is a primary key or it is nothing. No row floor.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_taxi_zone', 'business', 'lookup_has_265_zones', 0.0, 0.0, 5, FALSE,
+     'The zone lookup does not hold exactly 265 rows.',
+     'SOURCE_SPEC — TLC publishes 265 zones. A different number is a source change.', 'N/A', 'scalar (1)'),
+    ('gold', 'dim_taxi_zone', 'consistency', 'rows_reconcile_with_silver', 0.0, 0.0, 5, FALSE,
+     'Gold row count differs from the expected count over Silver.',
+     'PIPELINE_INVARIANT — recomputes the build trip_key expression rather than trusting it.', 'N/A', 'scalar (1)'),
+    ('gold', 'dim_taxi_zone', 'completeness', 'table_not_empty', 0.0, 0.0, 5, TRUE,
+     'The table has no rows for this batch.',
+     'PIPELINE_INVARIANT — the only check that reports emptiness. Every other check SKIPs on an empty batch rather than inventing its own failure from a NULL aggregate.', 'N/A', 'scalar (1)'),
+    ('gold', 'dim_taxi_zone', 'business', 'unknown_zones_present', 0.0, 0.0, 5, FALSE,
+     'Ids 264 and 265 are not both present in the dimension.',
+     'SOURCE_SPEC — same reserved ids, checked after the copy into Gold.', 'N/A', 'scalar (1)'),
+    ('gold', 'dim_taxi_zone', 'completeness', 'zone_name_not_blank', 0.0, 0.0, 5, FALSE,
+     'Column zone name is NULL or trims to an empty string.',
+     'SOURCE_SPEC — a blank label reads as a real category in a group-by.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_weather', 'consistency', 'hour_temp_within_day_range', 0.0, 0.0, 5, FALSE,
+     'An hourly temp_avg_c falls outside its own day min/max.',
+     'PIPELINE_INVARIANT — temp_max/min are the DAY values from a window; temp_avg is the HOUR value. A window over the wrong partition shows up here and nowhere else.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_weather', 'consistency', 'key_matches_timestamp', 0.0, 0.0, 5, TRUE,
+     'weather_key disagrees with yyyyMMddHH of weather_timestamp.',
+     'PIPELINE_INVARIANT — same derived-key risk.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_weather', 'uniqueness', 'one_row_per_hour', 0.0, 0.0, 0, FALSE,
+     'More than one row for the same hour.',
+     'PIPELINE_INVARIANT — the hour is the MERGE key. No row floor: one duplicate is the defect.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_weather', 'validity', 'rain_hours_in_domain', 100.0, 0.0, 5, FALSE,
+     'rain_hours holds a value other than 0, 1 or NULL.',
+     'ADVISORY — the column is typed DOUBLE and named as a count of hours, but the build emits a per-row flag. Recorded so the mismatch is visible, not discovered in a dashboard.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_weather', 'completeness', 'table_not_empty', 0.0, 0.0, 5, TRUE,
+     'The table has no rows for this batch.',
+     'PIPELINE_INVARIANT — the only check that reports emptiness. Every other check SKIPs on an empty batch rather than inventing its own failure from a NULL aggregate.', 'N/A', 'scalar (1)'),
+    ('gold', 'dim_weather', 'consistency', 'timestamp_is_on_the_hour', 0.0, 0.0, 5, FALSE,
+     'weather_timestamp has a non-zero minute or second.',
+     'PIPELINE_INVARIANT — the build truncates to the hour.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_weather', 'completeness', 'weather_condition_not_null', 0.0, 0.0, 5, FALSE,
+     'weather_condition is NULL.',
+     'PIPELINE_INVARIANT — the build COALESCEs to Unknown, so this is a regression test.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_weather', 'consistency', 'weather_date_matches_timestamp', 0.0, 0.0, 5, FALSE,
+     'weather_date disagrees with the date of weather_timestamp.',
+     'PIPELINE_INVARIANT — derived column, same risk as the keys.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_weather', 'completeness', 'weather_key_not_null', 0.0, 0.0, 0, TRUE,
+     'weather_key is NULL in the dimension.',
+     'PIPELINE_INVARIANT — the dimension primary key.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_weather', 'uniqueness', 'weather_key_unique', 0.0, 0.0, 0, TRUE,
+     'Duplicate weather_key in the dimension.',
+     'PIPELINE_INVARIANT — same fan-out risk as any duplicated dimension key.', 'N/A', 'rows in the table'),
+    ('gold', 'dim_weather', 'completeness', 'weather_timestamp_not_null', 0.0, 0.0, 5, FALSE,
+     'weather_timestamp is NULL in the dimension.',
+     'PIPELINE_INVARIANT — the key is derived from it.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'completeness', 'created_at_recorded', 0.0, 0.0, 5, FALSE,
+     'Audit column created_at is NULL.',
+     'PIPELINE_INVARIANT — records when the fact row first landed.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'business', 'dedup_collapse_rate', 100.0, 0.0, 5, FALSE,
+     'Share of Silver rows absorbed by the coarser fact trip_key.',
+     'ADVISORY — the early warning for the concat_ws NULL-skipping weakness.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'dropoff_date_matches_timestamp', 0.0, 0.0, 5, TRUE,
+     'dropoff_date disagrees with DATE(lpep_dropoff_datetime).',
+     'PIPELINE_INVARIANT — a trip starting at 23:50 ends on the next day.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'duration_matches_timestamps', 0.0, 0.0, 5, TRUE,
+     'trip_duration_minutes disagrees with its own timestamps.',
+     'PIPELINE_INVARIANT — recomputed with unix_timestamp(), not timestampdiff(). The two disagree by exactly the DST shift on trips straddling 02:00 on spring-forward day.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'completeness', 'every_silver_month_present', 0.0, 0.0, 5, FALSE,
+     'A month present in Silver has no trips in the fact table.',
+     'PIPELINE_INVARIANT — this is what makes "Gold covers all batches" an assertion. An anti-join, not a count comparison: two months can match on count and be the wrong two.', 'N/A', 'distinct months in Silver'),
+    ('gold', 'fact_taxi_trip', 'uniqueness', 'one_row_per_trip_key', 0.0, 0.0, 0, TRUE,
+     'More than one fact row for the same trip_key.',
+     'PIPELINE_INVARIANT — the grain of the fact table, stated.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'payment_type_matches_id', 0.0, 0.0, 5, FALSE,
+     'The denormalised payment label disagrees with its id.',
+     'PIPELINE_INVARIANT — same CASE-drift risk.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'pickup_before_dropoff', 0.0, 0.0, 5, FALSE,
+     'Dropoff timestamp precedes pickup.',
+     'BUSINESS_RULE — a reversed trip is not a trip.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'pickup_date_matches_timestamp', 0.0, 0.0, 5, TRUE,
+     'pickup_date disagrees with DATE(lpep_pickup_datetime).',
+     'PIPELINE_INVARIANT — pickup_date is the foreign key to dim_date.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'business', 'quarantined_rows_in_gold', 100.0, 0.0, 5, FALSE,
+     'Fact rows Silver classified FAIL.',
+     'ADVISORY BY DESIGN — the fact table deliberately keeps them and carries the labels. What matters is that consumers filter; see the valid-view note in gold_qc.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'ratecode_description_matches_id', 0.0, 0.0, 5, FALSE,
+     'The denormalised ratecode label disagrees with its id.',
+     'PIPELINE_INVARIANT — same CASE-drift risk.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'revenue_preserved', 0.0, 0.0, 5, TRUE,
+     'Total revenue differs between layers beyond 0.1% or $1.',
+     'PIPELINE_INVARIANT — a row count can match while values shift. Money is the check that notices.', 'N/A', 'scalar (1)'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'rows_reconcile_with_silver', 0.0, 0.0, 5, TRUE,
+     'Gold row count differs from the expected count over Silver.',
+     'PIPELINE_INVARIANT — recomputes the build trip_key expression rather than trusting it.', 'N/A', 'scalar (1)'),
+    ('gold', 'fact_taxi_trip', 'completeness', 'table_not_empty', 0.0, 0.0, 5, TRUE,
+     'The table has no rows for this batch.',
+     'PIPELINE_INVARIANT — the only check that reports emptiness. Every other check SKIPs on an empty batch rather than inventing its own failure from a NULL aggregate.', 'N/A', 'scalar (1)'),
+    ('gold', 'fact_taxi_trip', 'validity', 'trip_key_inputs_not_null', 10.0, 0.0, 5, FALSE,
+     'A row has a NULL among the seven trip_key inputs.',
+     'PIPELINE_INVARIANT — concat_ws SKIPS NULLs rather than rendering them, so the key becomes ambiguous and two trips can collide. Fix: COALESCE each argument in the MERGE.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'trip_key_matches_its_inputs', 0.0, 0.0, 5, TRUE,
+     'The stored trip_key does not match a hash of its own row.',
+     'PIPELINE_INVARIANT — recomputed with the build exact expression, NULL-skipping included, so it tests the key rather than disagreeing with it.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'completeness', 'trip_key_not_null', 0.0, 0.0, 0, TRUE,
+     'trip_key is NULL.',
+     'PIPELINE_INVARIANT — the grain of the fact table.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'trip_type_description_matches_id', 0.0, 0.0, 5, FALSE,
+     'The denormalised trip type label disagrees with its id.',
+     'PIPELINE_INVARIANT — same CASE-drift risk.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'business', 'trips_carrying_silver_warnings', 100.0, 0.0, 5, FALSE,
+     'Fact rows carrying at least one issue entry.',
+     'ADVISORY — a level to watch.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'vendor_name_matches_id', 0.0, 0.0, 5, FALSE,
+     'The denormalised vendor label disagrees with vendor_id.',
+     'PIPELINE_INVARIANT — a dashboard grouped by the label after someone edits the CASE reads as a real change in the business.', 'N/A', 'rows in the table'),
+    ('gold', 'fact_taxi_trip', 'consistency', 'weather_key_matches_pickup_hour', 0.0, 0.0, 5, FALSE,
+     'The stored weather_key disagrees with the UTC hour of pickup.',
+     'PIPELINE_INVARIANT — the ONLY automated statement in the pipeline that the UTC-vs-New-York conversion runs in the right direction. Backwards, every trip still gets a weather row, just the wrong one.', 'N/A', 'rows in the table'),
+-- ---------- at_rest ----------
+    ('at_rest', 'fact_taxi_trip', 'at_rest_integrity', 'calendar_days_used_by_a_trip', 100.0, 0.0, 0, FALSE,
+     'Calendar days no trip references.',
+     'AT_REST ADVISORY — same reachability signal.', 'N/A', 'rows in the dimension'),
+    ('at_rest', 'fact_taxi_trip', 'at_rest_integrity', 'dropoff_date_resolves', 10.0, 0.0, 5, FALSE,
+     'A trip dropoff_date has no row in dim_date.',
+     'AT_REST — same convention, same denominator reasoning.', 'N/A', 'distinct key values in the fact table'),
+    ('at_rest', 'fact_taxi_trip', 'at_rest_integrity', 'dropoff_zone_resolves', 0.0, 0.0, 5, TRUE,
+     'A distinct dropoff_location_id has no row in dim_taxi_zone.',
+     'AT_REST — same, on the other side of the trip.', 'N/A', 'distinct key values in the fact table'),
+    ('at_rest', 'fact_taxi_trip', 'at_rest_integrity', 'pickup_date_resolves', 10.0, 0.0, 5, FALSE,
+     'A trip pickup_date has no row in dim_date.',
+     'AT_REST — counted in TRIPS, not distinct dates, and tolerated. dim_date spans the weather feed; TLC files carry a handful of trips dated years outside the file month, which is ~8% of ~100 dates but 0.008% of 133,367 trips.', 'N/A', 'distinct key values in the fact table'),
+    ('at_rest', 'fact_taxi_trip', 'at_rest_integrity', 'pickup_zone_resolves', 0.0, 0.0, 5, TRUE,
+     'A distinct pickup_location_id has no row in dim_taxi_zone.',
+     'AT_REST — counted in DISTINCT KEYS. One unmatched zone affecting 40,000 trips is ONE thing to fix; reporting it as 40,000 failures buries it. No row floor for that reason.', 'N/A', 'distinct key values in the fact table'),
+    ('at_rest', 'fact_taxi_trip', 'at_rest_integrity', 'trips_with_unmatched_dropoff_zone', 100.0, 0.0, 0, FALSE,
+     'Trips whose dropoff zone does not resolve, in rows.',
+     'ADVISORY — the blast radius of the key-level check.', 'N/A', 'rows in the table'),
+    ('at_rest', 'fact_taxi_trip', 'at_rest_integrity', 'trips_with_unmatched_pickup_zone', 100.0, 0.0, 0, FALSE,
+     'Trips whose pickup zone does not resolve, in rows.',
+     'ADVISORY — the blast radius of the key-level check.', 'N/A', 'rows in the table'),
+    ('at_rest', 'fact_taxi_trip', 'at_rest_integrity', 'trips_with_unmatched_weather_key', 100.0, 0.0, 0, FALSE,
+     'Trips whose weather_key does not resolve, in rows.',
+     'ADVISORY — the blast radius of the key-level check.', 'N/A', 'rows in the table'),
+    ('at_rest', 'fact_taxi_trip', 'at_rest_integrity', 'trips_without_weather', 100.0, 0.0, 0, FALSE,
+     'Trips with no weather_key at all.',
+     'ADVISORY — not a broken reference: the build LEFT JOIN found no hour. Expected at month edges, and the number to watch when the UTC conversion is in question.', 'N/A', 'rows in the table'),
+    ('at_rest', 'fact_taxi_trip', 'at_rest_integrity', 'weather_hours_used_by_a_trip', 100.0, 0.0, 0, FALSE,
+     'Dimension hours no trip references.',
+     'AT_REST ADVISORY — an unused row is normal; MOST rows unused means the key convention drifted and the join is succeeding on a shrinking subset.', 'N/A', 'rows in the dimension'),
+    ('at_rest', 'fact_taxi_trip', 'at_rest_integrity', 'weather_key_resolves', 0.0, 0.0, 5, FALSE,
+     'A non-NULL weather_key has no row in dim_weather.',
+     'AT_REST — NOT blocking: the cause is a stale fact table, not corrupt data, and a rebuild clears it. Blocking does not rebuild anything.', 'N/A', 'distinct key values in the fact table'),
+    ('at_rest', 'fact_taxi_trip', 'at_rest_integrity', 'zones_used_by_a_trip', 100.0, 0.0, 0, FALSE,
+     'Zones no trip references.',
+     'AT_REST ADVISORY — same reachability signal.', 'N/A', 'rows in the dimension');
 
--- ## 2. Load the rules — full rebuild
 
-INSERT OVERWRITE dq_rules
-SELECT * FROM VALUES
-    ('bronze', 'green_taxi', 'consistency', 'dispatch_fields_null_as_a_set', 0.0, 'The six dispatch fields are null together or not at all', '[structural] Counting how many of the six are null per row, the answer is only ever 0 or 6 - observed 114,613 rows at zero and 18,754 at six. Anything in between means the pattern changed and the Silver rules built on it need revisiting.', 'IGNORE', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'consistency', 'dropoff_after_pickup', 5.0, 'Dropoff is not before pickup', '[provisional] One row was observed with dropoff 57 minutes before pickup, from VendorID 6. Proportional damage, so the default applies.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'dropoff_datetime_not_null', 0.0, 'Every trip has a dropoff timestamp', '[structural] Needed for duration and speed. A trip with no end cannot be measured.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'green_taxi', 'consistency', 'dropoff_zone_exists_in_lookup', 0.0, 'Every dropoff LocationID exists in taxi_zones', '[structural] As above, for the destination half.', 'FLAG', TRUE, 'distinct_ids'),
-    ('bronze', 'green_taxi', 'validity', 'dropoff_zone_in_range', 5.0, 'Dropoff LocationID is between 1 and 265', '[provisional] As above, for the destination half.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'dropoff_zone_not_null', 0.0, 'Every trip has a dropoff LocationID', '[structural] As above, for the destination half of the trip.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'green_taxi', 'consistency', 'duration_not_zero', 5.0, 'Pickup and dropoff are not the identical instant', '[provisional] A zero-length trip is a meter fault or a cancellation. Kept separate from dropoff_after_pickup because the causes differ.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'consistency', 'duration_under_24_hours', 5.0, 'Trip lasts under 24 hours', '[provisional] A maximum of 2,456 minutes - about 41 hours - was observed. Almost certainly a meter left running.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'business', 'every_landed_file_is_loaded', 0.0, 'Every file in the landing directory appears in source_file', '[structural] The incremental-safe half of load fidelity. row_count_matches_source compares everything in the landing directory with everything in the table, which is only the same population while the load is a full refresh; the moment it goes incremental a not-yet-loaded file looks like row loss and archived history looks like a double load. This reconciles on source_file instead, and catches the failure a row count cannot see: COPY INTO skipping one file of three still produces a large, plausible-looking table.', 'QUARANTINE', TRUE, 'source_files'),
-    ('bronze', 'green_taxi', 'validity', 'fare_amount_not_negative', 5.0, 'Fare is not negative', '[tolerated] Threshold is the policy 5.0, not a number derived from this rate. The observed rate below is recorded as a BASELINE - what the data does today - and is deliberately not the basis for the threshold: a limit set just above its own observation cannot fail on the data it was fitted to. Negative fares are refunds and disputes - all observed rows carry payment_type 3 (No charge) or 4 (Dispute) - and are legitimate trips. Observed 0.29 percent. Excluded from revenue totals in Gold, kept in trip counts.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'fare_amount_not_null', 5.0, 'Every trip records a fare', '[provisional] Base of most revenue figures. Proportional damage, so the default applies. Note that for VendorID 6 fare_amount is a placeholder rather than a fare - see myle_fare_stays_placeholder.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'business', 'fare_implies_some_distance', 5.0, 'A positive fare implies non-zero distance', '[tolerated] Threshold is the policy 5.0, not a number derived from this rate. The observed rate below is recorded as a BASELINE - what the data does today - and is deliberately not the basis for the threshold: a limit set just above its own observation cannot fail on the data it was fitted to. Observed 3.14 / 3.44 / 3.29 percent across March, April and May 2026 - stable month to month, so a property of the source rather than an incident. 62.9 percent of these trips last under a minute and 58.9 percent start and end in the same zone, consistent with cancelled or mis-started trips carrying a minimum charge. Threshold raised from an original estimate of 2.0, which was never measured. 4.0 clears the observed rate with room for variation while still catching a genuine jump.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'business', 'fare_plausible_for_duration', 5.0, 'No large fare on a zero-distance trip under a minute', '[tolerated] Threshold is the policy 5.0, not a number derived from this rate. The observed rate below is recorded as a BASELINE - what the data does today - and is deliberately not the basis for the threshold: a limit set just above its own observation cannot fail on the data it was fitted to. A cluster of round fares on trips that barely happened: 300 appears 22 times at about 3 seconds and zero distance, 18 of them starting and ending in the same zone, plus smaller groups at 250, 200, 160 and 120. Roughly 50 rows, about 0.04 percent. Too few to move any threshold and too specific to be an accident, and it hides inside fare_implies_some_distance where 4,387 rows are mostly genuine one-minute cancellations. Threshold 0.1 because a handful is expected and a jump is not.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'business', 'implied_speed_under_100mph', 5.0, 'Implied average speed is under 100 mph', '[provisional] Distance divided by duration. A violation means distance or duration is wrong, not that the taxi was fast.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'ingestion_time_recorded', 5.0, 'Every row carries an ingestion timestamp', '[provisional] Lineage. Less critical than source_file because the load history is also in Delta, so the default applies.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'consistency', 'myle_dispatch_fields_stay_null', 0.0, 'VendorID 6 still submits no dispatch fields', '[structural] Myle is 100 percent null on all six dispatch fields across 14,181 rows. Several downstream rules are built on that being total rather than partial, so any exception invalidates them.', 'IGNORE', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'business', 'myle_fare_stays_placeholder', 0.0, 'VendorID 6 fare_amount stays below 10', '[structural] Myle fare_amount is a placeholder, not a fare. Its values are small multiples of 1.5 - 0, 1.5, 3, 4.5, 6, 7.5, 9 - and its average is flat at about 2.75 across every distance band, while total_amount rises from 15.79 under a mile to 51.52 over twelve. A number uncorrelated with distance is not a metered fare, so total_amount is the real charge for these 14,181 trips and any revenue figure built on fare_amount is wrong by roughly a factor of ten for a tenth of the dataset. The bound of 10 sits above the largest observed value of 9 and far below the average total of 29: crossing it means Myle started reporting real fares and Silver needs to know. An earlier version asserted fare_amount IN (0, 3) from about twenty visible rows and failed on 1,537 of them - never generalise a domain from a LIMIT 20.', 'IGNORE', FALSE, 'vendor_rows'),
-    ('bronze', 'green_taxi', 'uniqueness', 'no_exact_duplicate_rows', 5.0, 'No two rows identical across all trip columns', '[tolerated] Threshold is the policy 5.0, not a number derived from this rate. The observed rate below is recorded as a BASELINE - what the data does today - and is deliberately not the basis for the threshold: a limit set just above its own observation cannot fail on the data it was fitted to. There is no trip id in this dataset, so two identical rows may be two genuine trips that happen to share every value. 1.0 reflects that this is a judgement rather than a defect count.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_congestion_surcharge', 0.0, 'The load added no nulls to congestion_surcharge', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_do_location_id', 0.0, 'The load added no nulls to DOLocationID', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_dropoff_datetime', 0.0, 'The load added no nulls to lpep_dropoff_datetime', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_extra', 0.0, 'The load added no nulls to extra', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_fare_amount', 0.0, 'The load added no nulls to fare_amount', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_improvement_surcharge', 0.0, 'The load added no nulls to improvement_surcharge', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_mta_tax', 0.0, 'The load added no nulls to mta_tax', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_passenger_count', 0.0, 'The load added no nulls to passenger_count', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_payment_type', 0.0, 'The load added no nulls to payment_type', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_pickup_datetime', 0.0, 'The load added no nulls to lpep_pickup_datetime', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_pu_location_id', 0.0, 'The load added no nulls to PULocationID', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_ratecode_id', 0.0, 'The load added no nulls to RatecodeID', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_store_and_fwd_flag', 0.0, 'The load added no nulls to store_and_fwd_flag', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_tip_amount', 0.0, 'The load added no nulls to tip_amount', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_tolls_amount', 0.0, 'The load added no nulls to tolls_amount', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_total_amount', 0.0, 'The load added no nulls to total_amount', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_trip_distance', 0.0, 'The load added no nulls to trip_distance', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_trip_type', 0.0, 'The load added no nulls to trip_type', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'no_nulls_added_vendor_id', 0.0, 'The load added no nulls to VendorID', '[structural] The group load declares its schema and CASTs, so there is no _rescued_data and a failed cast is indistinguishable from a missing value. The landed Parquet is the last copy that has not been cast: a column with more nulls after the load than before it lost data in the cast. Self-inflicted loss, so zero tolerance regardless of tier. Every cast column is compared, not the handful that seemed most likely to break - a cast that silently nulls a value is invisible by definition, so likely is not something you can know in advance, and the extra columns cost nothing because it is the same single pass over the same files.', 'QUARANTINE', TRUE, 'source_rows'),
-    ('bronze', 'green_taxi', 'business', 'no_tip_recorded_on_cash', 5.0, 'Cash trips record no tip', '[provisional] Cash tips are famously unrecorded by the meter, so a non-zero tip on payment_type 2 is a data-entry oddity rather than a fraud signal.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'validity', 'passenger_count_not_negative', 0.0, 'Passenger count is not negative', '[structural] A negative integer casts cleanly, so it passes every type check while being impossible. Nothing downstream can interpret it.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'passenger_count_not_null_excl_myle', 5.0, 'Passenger count present, excluding VendorID 6', '[tolerated] Threshold is the policy 5.0, not a number derived from this rate. The observed rate below is recorded as a BASELINE - what the data does today - and is deliberately not the basis for the threshold: a limit set just above its own observation cannot fail on the data it was fitted to. Myle Technologies submits none of the six dispatch fields, so its nulls are structural rather than missing data and are excluded here. 5.0 covers the genuine gaps observed from the other two vendors: 1.66 percent for VendorID 1 and 4.05 percent for VendorID 2.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'validity', 'passenger_count_not_zero', 5.0, 'Passenger count is not an explicit 0', '[tolerated] Threshold is the policy 5.0, not a number derived from this rate. The observed rate below is recorded as a BASELINE - what the data does today - and is deliberately not the basis for the threshold: a limit set just above its own observation cannot fail on the data it was fitted to. Different from NULL: the meter recorded a value and that value was nobody. Observed 1,727 rows, 1.29 percent.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'validity', 'passenger_count_plausible', 5.0, 'Passenger count is 9 or fewer', '[provisional] Green taxis seat at most a handful. Higher values indicate a meter or entry fault. Proportional damage, default threshold.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'validity', 'payment_type_in_domain', 5.0, 'payment_type is 0 to 6', '[provisional] 0 Flex Fare, 1 Credit card, 2 Cash, 3 No charge, 4 Dispute, 5 Unknown, 6 Voided. Code 0 is a recent addition an older dictionary does not list.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'pickup_datetime_not_null', 0.0, 'Every trip has a pickup timestamp', '[structural] The grain of the whole dataset is a trip in time. Without this the row cannot be placed on any date axis, so no percentage of it is tolerable.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'green_taxi', 'validity', 'pickup_month_matches_source_file', 5.0, 'Pickup falls in the months we loaded', '[tolerated] Threshold is the policy 5.0, not a number derived from this rate. The observed rate below is recorded as a BASELINE - what the data does today - and is deliberately not the basis for the threshold: a limit set just above its own observation cannot fail on the data it was fitted to. TLC files reliably carry a few trips dated years outside the file month. Observed 11 rows, 0.008 percent, including trips dated 2008 and 2009. Kept at 0.5 rather than the provisional default because 5.0 would tolerate over six thousand out-of-window trips and make the check decorative.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'consistency', 'pickup_zone_exists_in_lookup', 0.0, 'Every pickup LocationID exists in taxi_zones', '[structural] Measured in distinct ids, not trips: one unmatched id affecting forty thousand trips is one thing to fix, and reporting it as forty thousand failures would drown out everything else. An unmatched id becomes an Unknown member in dim_zone, so the trip survives but lands in a bucket nobody can act on.', 'FLAG', TRUE, 'table_rows'),
-    ('bronze', 'green_taxi', 'validity', 'pickup_zone_in_range', 5.0, 'Pickup LocationID is between 1 and 265', '[provisional] An out-of-range id cannot join to the zone lookup and lands in the Unknown member. Proportional damage.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'pickup_zone_not_null', 0.0, 'Every trip has a pickup LocationID', '[structural] The only location information in the file. Required for any zone-level question and for the dim_zone join.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'green_taxi', 'validity', 'ratecode_in_domain', 5.0, 'RatecodeID is 1 to 6 or 99', '[provisional] From the TLC LPEP dictionary. Re-check when TLC republishes it.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'business', 'row_count_matches_source', 0.0, 'Bronze row count equals the landed Parquet row count', '[structural] Whether our own pipeline dropped or duplicated rows on the way in, not how imperfect the source is. There is no tolerable rate of self-inflicted loss. A failure means COPY INTO skipped a file it had already loaded, or loaded one twice.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'source_file_recorded', 0.0, 'Every row carries its source file', '[structural] Lineage. Without it a bad month cannot be traced back to the file it came from, and no per-file investigation is possible.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'green_taxi', 'validity', 'store_and_fwd_flag_in_domain', 5.0, 'store_and_fwd_flag is Y or N', '[provisional] Nulls are handled by the dispatch-field checks rather than counted here.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. An empty table makes every SUM(CASE ...) in the metrics block NULL, and a NULL failed_rows falls through the status CASE to FAIL - so an empty load already stops the pipeline, but by accident, and reported as forty unrelated failures rather than one cause. This states it on purpose so the results list opens with the reason instead of the symptoms. silver_action is IGNORE because there is no row to act on - if the table is empty there is nothing in it to quarantine.', 'IGNORE', TRUE, 'scalar'),
-    ('bronze', 'green_taxi', 'validity', 'total_amount_not_negative', 5.0, 'Total is not negative', '[tolerated] Threshold is the policy 5.0, not a number derived from this rate. The observed rate below is recorded as a BASELINE - what the data does today - and is deliberately not the basis for the threshold: a limit set just above its own observation cannot fail on the data it was fitted to. Same reasoning as fare_amount_not_negative, and the same rows.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'total_amount_not_null', 5.0, 'Every trip records a total', '[provisional] Reported directly in Gold and the only trustworthy charge column for VendorID 6. Proportional damage.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'business', 'total_equals_sum_of_charges_v1', 5.0, 'For VendorID 1, total_amount equals fare plus extra plus mta_tax plus tip plus tolls', '[tolerated] Threshold is the policy 5.0, not a number derived from this rate. The observed rate below is recorded as a BASELINE - what the data does today - and is deliberately not the basis for the threshold: a limit set just above its own observation cannot fail on the data it was fitted to. VendorID 1 (Creative Mobile) reports total_amount as fare plus extra plus mta_tax plus tip plus tolls. It still contains tip and tolls, so this is not the metered fare - it is everything except the three surcharges. All three surcharges - improvement, congestion and cbd_congestion_fee - are itemised in their own columns but never rolled in. Established in two steps: dropping improvement and congestion took the mismatch from 95.74 to 12.09 percent, and the remainder then sat on a single residual of -0.75 across 1,114 rows, which is the cbd fee. With all three excluded, 98.37 percent reconcile. Threshold 2.0 against the observed 1.63 percent.', 'QUARANTINE', FALSE, 'vendor_rows'),
-    ('bronze', 'green_taxi', 'business', 'total_equals_sum_of_charges_v2', 5.0, 'For VendorID 2, total_amount equals the sum of its components', '[tolerated] Threshold is the policy 5.0, not a number derived from this rate. The observed rate below is recorded as a BASELINE - what the data does today - and is deliberately not the basis for the threshold: a limit set just above its own observation cannot fail on the data it was fitted to. VendorID 2 (Curb) is the only vendor reporting a full fare decomposition. cbd_congestion_fee must be included: it is a flat 0.75 Congestion Relief Zone charge, and omitting it from an earlier version of this formula produced a 26 percent failure rate across all vendors that looked like a data fault and was a missing column. With it included, 98.67 percent reconcile. The residual 1.33 percent is 1,444 rows of which 1,316 sit on a single value of 2.75 - a congestion surcharge collected but not itemised, which is a source inconsistency rather than a missing term. Threshold 2.0 sits just above the measured rate.', 'QUARANTINE', FALSE, 'vendor_rows'),
-    ('bronze', 'green_taxi', 'validity', 'trip_distance_not_negative', 0.0, 'Distance is not negative', '[structural] Physically impossible. A negative here means a corrupt record, not a refund.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'trip_distance_not_null', 5.0, 'Every trip records a distance', '[provisional] Used in speed, revenue-per-mile and disruption analysis. Damage is proportional - a null affects that trip and nothing else - so the default 5.0 applies until the real rate is counted.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'validity', 'trip_distance_plausible', 5.0, 'Trip distance is plausible (under 200 miles)', '[tolerated] A single trip of 111,005 miles was observed; p99.9 is 31 miles, so 200 sits far above real trips and far below the fault. Policy 5.0 rather than 0.0 because 200 is a PLAUSIBILITY cutoff: the row arrived and is recorded correctly, which makes it a source imperfection. A negative distance is impossible and is the one that carries 0.0 and blocks. At 0.0 this reported FAIL on 31 of 133,367 rows and would have on every run forever, which is the definition of a check people stop reading. The realistic blow-up -- a feed switching to metres -- lands near 100 percent and is caught easily.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'validity', 'trip_type_in_domain', 5.0, 'trip_type is 1 or 2', '[provisional] 1 street-hail, 2 dispatch.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'consistency', 'trips_with_unmatched_dropoff_zone', 100.0, 'Trip rows whose dropoff LocationID is not in the lookup', '[structural] ADVISORY. As above, for the destination half.', 'IGNORE', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'consistency', 'trips_with_unmatched_pickup_zone', 100.0, 'Trip rows whose pickup LocationID is not in the lookup', '[structural] ADVISORY - threshold 100.0 so it can only ever WARN, because it is the same defect as pickup_zone_exists_in_lookup measured a second way and one defect should not be able to stop the pipeline twice. The key count is what you act on: one unmatched id is one thing to fix whether it touches six trips or sixty thousand. This is what tells you how much it costs, and the two numbers can be four orders of magnitude apart.', 'IGNORE', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'validity', 'vendor_id_in_domain', 5.0, 'VendorID is 1, 2 or 6', '[provisional] From the current TLC LPEP dictionary: 1 Creative Mobile, 2 Curb Mobility, 6 Myle Technologies. An earlier version of this check used (1,2) from an older dictionary and flagged 14,181 valid Myle trips as invalid. A domain check is only as current as the dictionary it was copied from.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'green_taxi', 'completeness', 'vendor_id_not_null', 5.0, 'Every trip names its LPEP provider', '[provisional] Provenance. Needed to interpret the dispatch-field gaps and to pick the right charge identity.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'taxi_zones', 'business', 'airport_zones_present', 0.0, 'LocationIDs 1, 132 and 138 are all present', '[structural] Scalar check. Newark, JFK and LaGuardia. If these are missing the file is not the lookup we think it is.', 'IGNORE', FALSE, 'scalar'),
-    ('bronze', 'taxi_zones', 'validity', 'borough_in_domain', 5.0, 'Borough is one of the eight published values', '[provisional] Manhattan, Queens, Brooklyn, Bronx, Staten Island, EWR, Unknown, N/A. A new value means the lookup changed shape.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'taxi_zones', 'completeness', 'borough_not_null', 5.0, 'Every zone names a borough', '[provisional] Used for every borough-level rollup in Gold.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'taxi_zones', 'validity', 'location_id_in_range', 5.0, 'LocationID is between 1 and 265', '[provisional] The published lookup uses 1 to 265 inclusive.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'taxi_zones', 'completeness', 'location_id_not_null', 0.0, 'Every zone row has a LocationID', '[structural] The primary key of the lookup. A null key joins to nothing.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'taxi_zones', 'uniqueness', 'location_id_unique', 0.0, 'LocationID is unique across the lookup', '[structural] The single most important check on this table: a duplicate key fans out the trip join in Gold and inflates every count in that zone. Counted as COUNT(location_id) - COUNT(DISTINCT location_id), not COUNT(*) - COUNT(DISTINCT location_id): COUNT(DISTINCT x) ignores nulls, so the COUNT(*) form reports every null key as a duplicate key. Two different defects with two different fixes, and the null one already has its own check.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'taxi_zones', 'business', 'lookup_has_265_zones', 0.0, 'The lookup holds exactly 265 zones', '[structural] Scalar check - total_rows is 1, so the percentage is 0 or 100 and nothing in between, which makes any non-zero threshold behave exactly like zero. A different count means the file changed or the load is partial, and every zone-level result downstream is suspect.', 'IGNORE', FALSE, 'scalar'),
-    ('bronze', 'taxi_zones', 'validity', 'service_zone_in_domain', 5.0, 'Service zone is one of the five published values', '[provisional] Boro Zone, Yellow Zone, Airports, EWR, N/A.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'taxi_zones', 'completeness', 'service_zone_not_null', 5.0, 'Every zone names a service zone', '[provisional] Distinguishes Boro Zone, Yellow Zone, Airports and EWR.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'taxi_zones', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. As above. On the lookup it is worse than on the fact table: an empty taxi_zones makes every referential-integrity check report 100 percent unmatched, which looks like a trip-data problem.', 'IGNORE', TRUE, 'scalar'),
-    ('bronze', 'taxi_zones', 'completeness', 'zone_name_not_null', 5.0, 'Every zone has a name', '[provisional] The human-readable label on every zone-level report.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'taxi_zones', 'business', 'zone_names_shared_is_3', 100.0, 'Exactly 3 LocationIDs share a zone name', '[structural] Scalar check, ADVISORY - threshold 100.0 so it can only ever WARN. Expect exactly 3: LocationIDs 103, 104 and 105 all carry the name Governors Island/Ellis Island/Liberty Island. Group by id and you get three rows; group by name and you get one. Neither is wrong, but a report that switches between them without saying so is. 264 and 265 are excluded because both are literally named Unknown by design. Asserted as an equality rather than as a count of offending rows: reporting the raw count meant the expected, known-good pattern produced a WARN on every single run, and a check that can never be clean is a check people learn to scroll past.', 'IGNORE', FALSE, 'scalar'),
-    ('bronze', 'weather', 'completeness', 'apparent_temp_not_null', 5.0, 'Apparent temperature is present', '[provisional] Secondary to temperature_2m.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'apparent_temp_parses', 5.0, 'apparent_temperature converts to a number', '[provisional] As above.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'cloud_cover_0_to_100', 5.0, 'Cloud cover is a percentage', '[provisional] As above.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'completeness', 'cloud_cover_not_null', 5.0, 'Cloud cover is present', '[provisional] Percentage cover.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'cloud_cover_parses', 5.0, 'cloud_cover converts to a number', '[provisional] As above.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'completeness', 'date_not_null', 0.0, 'Every weather row has a timestamp', '[structural] The grain and the MERGE key. A null here cannot be placed in time and cannot be matched on a re-run.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'date_parses', 0.0, 'The date column converts to a timestamp', '[structural] As above. The group table stores every column as STRING, so a value can be present and meaningless - n/a, an empty string, a dash - and a null check will happily pass it.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'weather', 'consistency', 'gusts_at_least_wind_speed', 5.0, 'Gust is at least the sustained wind speed', '[tolerated] Threshold is the policy 5.0, not a number derived from this rate. The observed rate below is recorded as a BASELINE - what the data does today - and is deliberately not the basis for the threshold: a limit set just above its own observation cannot fail on the data it was fitted to. Observed 13 rows of 2,208, 0.59 percent. Raised from an original guess of 0.1. A gust cannot really be below the sustained wind, but the two are measured over different intervals and rounded independently, so near-ties are expected. A genuine column swap would show as tens of percent.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'hour_within_covered_months', 0.0, 'Hour falls inside March to May 2026', '[tolerated] Threshold is the policy 5.0, not a number derived from this rate. The observed rate below is recorded as a BASELINE - what the data does today - and is deliberately not the basis for the threshold: a limit set just above its own observation cannot fail on the data it was fitted to. A single boundary row at 2026-02-28 23:00 is produced by the timestamp reconstruction, so a small tolerance applies. 1 of 2,208 rows is 0.045 percent, which lands as WARN rather than FAIL. Silver filters to the window.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'consistency', 'month_agrees_with_date', 5.0, 'The month column agrees with the timestamp', '[provisional] Accepts either convention - 2026-03 or 3 - because the group convention is not documented; it fails only if the value agrees with neither.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'completeness', 'month_not_null', 5.0, 'The month column is present', '[provisional] Group table only. Partition-style column carried from the source file.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'uniqueness', 'one_row_per_hour', 0.0, 'One row per parsed hour', '[structural] The MERGE key. The load uses WHEN NOT MATCHED THEN INSERT on date, so a duplicate means the merge condition is not doing what it is supposed to. Counted over the PARSED timestamp, not the raw string: the column is text, and 2026-03-01 05:00:00+00:00 and 2026-03-01 00:00:00-05:00 are the same hour written two ways, which a string comparison calls distinct. Counted with COUNT(x) rather than COUNT(*) so an unparseable timestamp is not reported as a duplicate hour - date_parses already owns that.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'precip_probability_0_to_100', 5.0, 'Precipitation probability is a percentage', '[provisional] Open-Meteo returns 0 to 100.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'completeness', 'precip_probability_not_null', 5.0, 'Precipitation probability is present', '[provisional] Forecast-side field, less central than observed precipitation.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'precip_probability_parses', 5.0, 'precipitation_probability converts to a number', '[provisional] As above.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'rain_not_negative', 5.0, 'Rain is not negative', '[provisional] As above.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'completeness', 'rain_not_null', 5.0, 'Rain is present', '[provisional] The group table has rain where the personal one has precipitation. Gold precip_band must be built from this column.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'rain_parses', 5.0, 'rain converts to a number', '[provisional] As above.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'consistency', 'source_file_is_not_placeholder', 100.0, 'source_file_month is not an unsubstituted placeholder', '[structural] ADVISORY - threshold 100.0 so it can only ever WARN. Observed 2,208 of 2,208, 100 percent: every row carries the literal text {weather_file} because the MERGE ran as plain SQL rather than through Python string formatting, so lineage for this table is gone. This is a real defect and the number is not tolerable. It is advisory because the fix belongs to the loader rather than to quality checks, and blocking the whole Bronze gate on another team''s bug helps nobody. Reported every run so it stays visible; set the threshold back to 0.0 once it is fixed.', 'IGNORE', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. As above.', 'IGNORE', TRUE, 'scalar'),
-    ('bronze', 'weather', 'completeness', 'temperature_not_null', 5.0, 'Temperature is present', '[provisional] Feeds temp_band in the Gold weather dimension. Proportional damage.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'temperature_parses', 5.0, 'temperature_2m converts to a number', '[provisional] The group table is entirely STRING, so each numeric column needs a parse check alongside its null check.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'temperature_plausible', 5.0, 'Temperature is between -30 and 50', '[provisional] Assumes Open-Meteo metric defaults (Celsius). Verify with the units cell before trusting this: if the request used Fahrenheit every threshold here is wrong and the results still look reasonable.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'visibility_not_negative', 5.0, 'Visibility is not negative', '[provisional] Metres in the metric default.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'completeness', 'visibility_not_null', 5.0, 'Visibility is present', '[provisional] Feeds visibility_band and the is_adverse flag in Gold.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'visibility_parses', 5.0, 'visibility converts to a number', '[provisional] As above.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'weather_code_in_wmo_domain', 5.0, 'Weather code is an integral WMO 4677 code', '[provisional] Two conditions, and the integrality test is not decoration: Spark truncates DOUBLE to INT, so CAST(3.5 AS INT) is 3 and 3 is a valid code. Without it a fractional value - exactly what a botched unit conversion or a half-written interpolation produces - is silently rounded into the allowed set and the check reports clean. Parsed as DOUBLE first: try_cast(''3.0'' AS INT) is NULL, and an earlier version casting straight to INT made this check pass because it was broken, since NULL NOT IN (...) is NULL rather than TRUE.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'completeness', 'weather_code_not_null', 5.0, 'WMO weather code is present', '[provisional] The categorical description of the hour.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'weather_code_parses', 5.0, 'weather_code converts to a number', '[provisional] Parsed as DOUBLE, not INT. A CSV that writes a code as 3.0 fails try_cast to INT outright: an earlier version reported 100 percent of rows unparseable when the data was fine and the check was wrong.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'completeness', 'wind_gusts_not_null', 5.0, 'Wind gusts are present', '[provisional] Paired with wind_speed.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'wind_gusts_parses', 5.0, 'wind_gusts_10m converts to a number', '[provisional] As above.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'wind_speed_not_negative', 5.0, 'Wind speed is not negative', '[provisional] km/h in the metric default.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'completeness', 'wind_speed_not_null', 5.0, 'Wind speed is present', '[provisional] Feeds wind_band.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'validity', 'wind_speed_parses', 5.0, 'wind_speed_10m converts to a number', '[provisional] As above.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'taxi_zones', 'completeness', 'source_file_recorded', 0.0, 'Every row carries its source file', '[structural] Lineage. Without it a bad load cannot be traced back to the file it came from, and no per-file investigation is possible. Blocking in the gate, like green_taxi''s.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'taxi_zones', 'completeness', 'ingestion_time_recorded', 5.0, 'Every row carries its ingestion time', '[tolerated] Useful rather than load-bearing: it answers when a row landed without re-reading the volume. Policy 5.0.', 'FLAG', FALSE, 'table_rows'),
-    ('bronze', 'weather', 'completeness', 'source_file_recorded', 0.0, 'Every row carries its source file', '[structural] Lineage. Without it a bad load cannot be traced back to the file it came from, and no per-file investigation is possible. Blocking in the gate, like green_taxi''s.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('bronze', 'weather', 'completeness', 'ingestion_time_recorded', 5.0, 'Every row carries its ingestion time', '[tolerated] Useful rather than load-bearing: it answers when a row landed without re-reading the volume. Policy 5.0.', 'FLAG', FALSE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'business', 'charges_reconcile_by_vendor', 5.0, 'Charge components sum to total_amount, per vendor', '[tolerated] The three providers report total_amount differently. Computed at check time from the component columns rather than stored, so the rule can be corrected without a schema migration and without a stored value going stale against the rule that produced it. Vendor 6 does not decompose its charges at all and is excluded from both sides of the rate. Observed 1.63 percent for vendor 1 and 1.33 for vendor 2 - a BASELINE, not the basis for the threshold. NOTE: the Silver cleaning inflates this. tip_amount is zeroed on cash payments while total_amount still contains the tip, and the negative clamps break the identity on refunds (payment_type 3 and 4), where the negative components are what make the negative total add up. If this check goes over threshold, read 41_silver_green_taxi_group before blaming the source.', 'FLAG', FALSE, 'vendor_rows'),
-    ('silver', 'green_taxi_clean', 'consistency', 'dedup_removal_rate', 5.0, 'The dedup removed a small share of Bronze', '[tolerated] The reconciliation remainder expressed as a rate, so a dedup that suddenly eats a third of the table is visible as a number rather than as a silent success. Threshold is the policy 5.0.', 'FLAG', FALSE, 'source_rows'),
-    ('silver', 'green_taxi_clean', 'validity', 'dq_status_in_domain', 0.0, 'dq_status is PASS, WARN or FAIL', '[structural] dq_status has exactly three states. A fourth value means the CASE that derives it was edited into a shape nobody intended, and every view filtering on it is then quietly wrong.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'completeness', 'dq_status_populated', 0.0, 'Every row carries a dq_status', '[structural] A null status puts the row in NEITHER view - not valid, not quarantined - which is deliberate: defaulting it either way hides the bug. Ships unchecked data one way, claims a reason that was never computed the other.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'consistency', 'dropoff_zone_exists_in_lookup', 0.0, 'Every dropoff LocationID resolves to a zone', '[structural] As above, for the destination half.', 'QUARANTINE', TRUE, 'distinct_ids'),
-    ('silver', 'green_taxi_clean', 'consistency', 'every_bronze_file_present', 0.0, 'Every Bronze file produced Silver rows', '[structural] Scalar check, reconciled by NAME rather than by count: two files of the same size reconcile by count while one of them never loaded. A Bronze file with no Silver rows has not been through the cleaning, and Gold is about to be built without it.', 'QUARANTINE', TRUE, 'scalar'),
-    ('silver', 'green_taxi_clean', 'consistency', 'fail_rows_carry_a_fail_issue', 0.0, 'A FAIL row carries at least one FAIL: entry', '[structural] A quarantined row with no reason cannot be defended to a reviewer, and the quarantine view has nothing to show for it.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'completeness', 'ingestion_time_recorded', 5.0, 'Every row carries its Bronze ingestion time', '[tolerated] Useful rather than load-bearing: it answers when a row landed in Bronze without re-reading Bronze. Policy 5.0.', 'FLAG', FALSE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'consistency', 'null_timestamps_are_quarantined', 0.0, 'Every row with a null pickup or dropoff is marked FAIL', '[structural] Nothing is deleted in this pipeline, so the assertion is not that no bad row survived - it is that every bad row is LABELLED. A row with a null pickup and dq_status WARN is real, invisible, and flows into Gold through the valid view as though it were fine.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'uniqueness', 'one_row_per_merge_key', 0.0, 'The merge key is unique in the target', '[structural] The merge key must be unique in the TARGET, or the MERGE updates the same row more than once per run and every Gold join fans out.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'consistency', 'out_of_era_pickups_are_quarantined', 0.0, 'Every pre-2009 or future pickup is marked FAIL', '[structural] LPEP started in 2009, so a pickup before it cannot be a real record. TLC files reliably carry a few trips dated years away.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'consistency', 'pass_rows_carry_no_issues', 0.0, 'A PASS row has an empty issue list', '[structural] Impossible if the derivation is right, which is exactly why it is worth asserting. A check that can only fail when the code is broken is the cheapest regression test there is.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'consistency', 'pickup_zone_exists_in_lookup', 0.0, 'Every pickup LocationID resolves to a zone', '[structural] Measured in distinct ids: one unmatched id is one thing to fix whether it touches six trips or sixty thousand. An id with no zone becomes an Unknown member in dim_zone - the trip survives and lands in a bucket labelled we do not know where, so the star schema works perfectly and the answer is quietly wrong. Read from vw_green_taxi_valid, not the table: a quarantined row''s unresolvable zone has already been handled.', 'QUARANTINE', TRUE, 'distinct_ids'),
-    ('silver', 'green_taxi_clean', 'completeness', 'qc_array_not_null', 0.0, 'qc_error_descriptions is never NULL', '[structural] size(NULL) is NULL, so a null array makes the whole derivation return NULL rather than a status. Completeness on a column Silver produces.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'validity', 'qc_entries_carry_severity_prefix', 0.0, 'Every issue entry starts with FAIL: or WARN:', '[structural] The whole design rests on the prefix: dq_status is derived from it, and a forgotten seven characters silently downgrades a FAIL row to WARN. This is the check that turns that omission into a visible failure instead of a wrong answer.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'business', 'quarantine_rate_within_limit', 5.0, 'Under 5 percent of trips are quarantined', '[tolerated] The one blanket limit. Every per-check threshold asks whether one rule is violated too often; only this one asks whether we are excluding so much that the answer stops being about New York taxis. Ten rules each quarantining 2 percent would all pass and between them remove a fifth. If it fires, read vw_green_taxi_quarantined before assuming the data is at fault - this is also the check most likely to catch a rule that is too aggressive.', 'FLAG', FALSE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'consistency', 'revenue_preserved', 0.0, 'Total revenue survives the cleaning', '[structural] Scalar check. A cast or a rename that damaged a numeric column shows up here and almost nowhere else - row counts would still reconcile perfectly.', 'QUARANTINE', TRUE, 'scalar'),
-    ('silver', 'green_taxi_clean', 'consistency', 'reversed_trips_are_quarantined', 0.0, 'Every row with dropoff before pickup is marked FAIL', '[structural] A negative duration corrupts every average it reaches. As above: the fault is the missing label, not the surviving row.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'business', 'rows_carrying_a_warning', 100.0, 'How many trips carry at least one warning', '[advisory] ADVISORY at 100.0, so it can only ever WARN. A number in the run log every run beats a sentence in a comment once.', 'IGNORE', FALSE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'consistency', 'rows_reconcile_with_bronze', 0.0, 'Silver equals Bronze minus the dedup', '[structural] Scalar check. The only check that can catch a WHERE creeping into a transformation, because every other check looks at what survived. Deliberately not silver = bronze: the dedup is supposed to remove rows, so the assertion is that the number removed equals the number of duplicate merge keys and not one more.', 'QUARANTINE', TRUE, 'scalar'),
-    ('silver', 'green_taxi_clean', 'completeness', 'silver_at_recorded', 0.0, 'Every row records when it was cleaned', '[structural] Completeness on a column Silver alone is responsible for producing. It is what distinguishes rule changed from data changed when two runs disagree.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'completeness', 'source_file_recorded', 0.0, 'Every row carries its source file', '[structural] Lineage. Bronze treats this as blocking; dropping the column at Silver undoes that gate, and a bad month can no longer be traced back to the file it came from. It is also what the file-reconciliation check joins on.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. An empty table makes every SUM(CASE ...) NULL, and a NULL failed_rows falls through the status CASE to FAIL - loud, but by accident, and reported as dozens of unrelated failures rather than one cause.', 'QUARANTINE', TRUE, 'scalar'),
-    ('silver', 'green_taxi_clean', 'consistency', 'trip_hour_has_weather', 5.0, 'Every trip hour finds a weather row', '[tolerated] Every trip hour must find a weather row, and the failure mode is not a null - it is a silently WRONG match, which is what happens when the session timezone is UTC rather than America/New_York. Bronze caught that once: 1 March held 20 hours under UTC bucketing, and every trip would have matched weather four hours away with no error anywhere. Pickups outside the loaded window are WARN rather than FAIL, so they stay in the valid view and a handful of hours legitimately have none.', 'FLAG', FALSE, 'distinct_ids'),
-    ('silver', 'green_taxi_clean', 'consistency', 'trips_with_unmatched_dropoff_zone', 100.0, 'How many trip rows have an unresolvable dropoff zone', '[advisory] ADVISORY at 100.0. As above, for the destination half.', 'IGNORE', FALSE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'consistency', 'trips_with_unmatched_pickup_zone', 100.0, 'How many trip rows have an unresolvable pickup zone', '[advisory] ADVISORY at 100.0. The same defect as pickup_zone_exists_in_lookup counted in trips rather than keys - three zones and eight thousand trips are different sentences and a reviewer wants both. One defect should not stop the pipeline twice, so only the key-level check blocks.', 'IGNORE', FALSE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'consistency', 'unresolvable_zones_are_quarantined', 0.0, 'Every row with an unusable zone is marked FAIL', '[structural] A zone outside 1..265 or null has no lookup row to join to, so the trip has no spatial axis. As above: the fault is the missing label.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'consistency', 'untraceable_rows_are_quarantined', 0.0, 'Every row without a source file is marked FAIL', '[structural] Bronze treats source_file_recorded as blocking. A row that cannot be traced back to its file cannot be defended, and dropping the lineage at Silver would undo that gate.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'consistency', 'warn_rows_carry_only_warn_issues', 0.0, 'A WARN row carries issues, none of them FAIL:', '[structural] Catches both directions at once: a WARN row with no issues at all, and a WARN row that should have been FAIL.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'green_taxi_clean', 'validity', 'zones_within_1_to_265', 0.0, 'Pickup and dropoff zones are between 1 and 265', '[structural] Bronze uses 1..265, so Silver must too. A narrower range in the cleaning makes Bronze and Silver disagree about what a valid zone is, and rewrites a legitimate 265 into something else.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'taxi_zones_clean', 'business', 'airport_zones_present', 0.0, 'All three airport zones are present', '[structural] Scalar check. Zones 1, 132 and 138 are Newark, JFK and LaGuardia, and the airport split in Gold is built on them.', 'QUARANTINE', FALSE, 'scalar'),
-    ('silver', 'taxi_zones_clean', 'validity', 'borough_in_domain', 0.0, 'Borough is one of the six published values', '[structural] Scalar or structural: one occurrence corrupts a join, a grain or an aggregate, so no rate is tolerable.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('silver', 'taxi_zones_clean', 'completeness', 'borough_not_blank', 0.0, 'Borough is present and not blank', '[structural] Scalar or structural: one occurrence corrupts a join, a grain or an aggregate, so no rate is tolerable.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('silver', 'taxi_zones_clean', 'validity', 'location_id_in_range', 0.0, 'LocationID is between 1 and 265', '[structural] Scalar or structural: one occurrence corrupts a join, a grain or an aggregate, so no rate is tolerable.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'taxi_zones_clean', 'completeness', 'location_id_not_null', 0.0, 'Every lookup row has a LocationID', '[structural] Scalar or structural: one occurrence corrupts a join, a grain or an aggregate, so no rate is tolerable.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'taxi_zones_clean', 'uniqueness', 'location_id_unique', 0.0, 'LocationID is unique in the lookup', '[structural] Counted as COUNT(x) - COUNT(DISTINCT x), not COUNT(*) - COUNT(DISTINCT x): COUNT(DISTINCT) ignores nulls, so the COUNT(*) form reports a null key as a duplicate key - two different defects with two different fixes, and the null one already has its own check.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'taxi_zones_clean', 'business', 'lookup_has_265_zones', 0.0, 'The lookup holds exactly 265 zones', '[structural] Scalar check. The TLC lookup publishes 265 zones. A different number means the lookup version changed and the zone handling built on it needs revisiting.', 'QUARANTINE', TRUE, 'scalar'),
-    ('silver', 'taxi_zones_clean', 'consistency', 'rows_reconcile_with_bronze', 0.0, 'Silver equals Bronze minus the dedup', '[structural] Scalar check. The only check that can catch a WHERE creeping into a transformation, because every other check looks at what survived. Deliberately not silver = bronze: the dedup is supposed to remove rows, so the assertion is that the number removed equals the number of duplicate merge keys and not one more.', 'QUARANTINE', TRUE, 'scalar'),
-    ('silver', 'taxi_zones_clean', 'validity', 'service_zone_in_domain', 0.0, 'Service zone is one of the five published values', '[structural] Scalar or structural: one occurrence corrupts a join, a grain or an aggregate, so no rate is tolerable.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('silver', 'taxi_zones_clean', 'completeness', 'service_zone_not_blank', 0.0, 'Service zone is present and not blank', '[structural] Scalar or structural: one occurrence corrupts a join, a grain or an aggregate, so no rate is tolerable.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('silver', 'taxi_zones_clean', 'completeness', 'source_file_recorded', 0.0, 'Every row carries its source file', '[structural] Lineage. Bronze treats this as blocking; dropping the column at Silver undoes that gate, and a bad month can no longer be traced back to the file it came from. It is also what the file-reconciliation check joins on.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'taxi_zones_clean', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. An empty table makes every SUM(CASE ...) NULL, and a NULL failed_rows falls through the status CASE to FAIL - loud, but by accident, and reported as dozens of unrelated failures rather than one cause.', 'QUARANTINE', TRUE, 'scalar'),
-    ('silver', 'taxi_zones_clean', 'business', 'two_unknown_zones_present', 0.0, 'Both unknown zones, 264 and 265, are present', '[structural] Scalar check. 264 and 265 are the source saying the meter did not record a zone. Silver is where they most often get lost - a BETWEEN 1 AND 263 written anywhere in the cleaning removes them, and then every trip with an unrecorded zone has nothing to join to.', 'QUARANTINE', TRUE, 'scalar'),
-    ('silver', 'taxi_zones_clean', 'completeness', 'zone_name_not_blank', 0.0, 'Zone name is present and not blank', '[structural] Scalar or structural: one occurrence corrupts a join, a grain or an aggregate, so no rate is tolerable.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'business', 'all_expected_days_present', 0.0, 'Every day of every covered month is present', '[structural] Scalar check. A generated calendar over the covered months rather than a count of distinct days: a count cannot say WHICH day is absent, and a stray boundary day can make the total look right while a real day is missing.', 'QUARANTINE', TRUE, 'scalar'),
-    ('silver', 'weather_clean', 'validity', 'cloud_cover_0_to_100', 5.0, 'Cloud cover is a percentage', '[tolerated] Tolerated source imperfection at the policy threshold. No number here is derived from its own observed rate.', 'FLAG', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'consistency', 'description_known_for_code', 0.0, 'A known weather code has a real description', '[structural] The description is computed in Silver from the code rather than arriving from the source, so it can drift in a way a real source column cannot - and Gold''s wet/dry split reads one of the two. A known code with the description Unknown is a gap in the lookup.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'consistency', 'description_matches_code', 0.0, 'A null weather code has no invented description', '[structural] The other half: a description on a row with no code is a default that fired wrongly. Two different fixes, so two checks.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'validity', 'dq_status_in_domain', 0.0, 'dq_status is PASS, WARN or FAIL', '[structural] dq_status has exactly three states. A fourth value means the CASE that derives it was edited into a shape nobody intended, and every view filtering on it is then quietly wrong.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'weather_clean', 'completeness', 'dq_status_populated', 0.0, 'Every row carries a dq_status', '[structural] A null status puts the row in NEITHER view - not valid, not quarantined - which is deliberate: defaulting it either way hides the bug. Ships unchecked data one way, claims a reason that was never computed the other.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'weather_clean', 'consistency', 'fail_rows_carry_a_fail_issue', 0.0, 'A FAIL row carries at least one FAIL: entry', '[structural] A quarantined row with no reason cannot be defended to a reviewer, and the quarantine view has nothing to show for it.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'weather_clean', 'consistency', 'gusts_at_least_wind_speed', 5.0, 'A gust is not below the sustained wind speed', '[tolerated] A gust is by definition a peak of the wind, so it cannot sit below the sustained speed. The two are measured over different intervals and rounded independently, which is where the handful of violations come from. A column swap would show up as tens of percent.', 'FLAG', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'validity', 'hour_within_covered_months', 0.0, 'Every hour belongs to a month the load covers', '[structural] The window is DERIVED from the load - a month counts as covered when at least two of its days arrived - not written into the check. A window written into a check asserts something about the data, so it goes stale and produces false failures the first time a different month is loaded. This is the same fix Bronze already carries.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'uniqueness', 'one_row_per_hour', 0.0, 'One weather row per hour', '[structural] Counted over the PARSED timestamp, not the raw string: two spellings of the same instant are distinct as strings, and a duplicate hour fans out the trip-to-weather join in Gold.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'weather_clean', 'consistency', 'pass_rows_carry_no_issues', 0.0, 'A PASS row has an empty issue list', '[structural] Impossible if the derivation is right, which is exactly why it is worth asserting. A check that can only fail when the code is broken is the cheapest regression test there is.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'weather_clean', 'validity', 'precip_probability_0_to_100', 5.0, 'Precipitation probability is a percentage', '[tolerated] Tolerated source imperfection at the policy threshold. No number here is derived from its own observed rate.', 'FLAG', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'completeness', 'qc_array_not_null', 0.0, 'qc_error_descriptions is never NULL', '[structural] size(NULL) is NULL, so a null array makes the whole derivation return NULL rather than a status. Completeness on a column Silver produces.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'weather_clean', 'validity', 'rain_not_negative', 5.0, 'Rain is not negative', '[tolerated] Tolerated source imperfection at the policy threshold. No number here is derived from its own observed rate.', 'FLAG', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'validity', 'rain_parsed', 0.0, 'Rain survived the conversion from text', '[structural] Bronze weather is entirely text, so this is the try_cast equivalent of a load-fidelity check: a NULL here on a value that was present in Bronze is a conversion we lost. Kept separate from the range checks because out of range and not a number have different fixes.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'consistency', 'rows_reconcile_with_bronze', 0.0, 'Silver equals Bronze minus the dedup', '[structural] Scalar check. The only check that can catch a WHERE creeping into a transformation, because every other check looks at what survived. Deliberately not silver = bronze: the dedup is supposed to remove rows, so the assertion is that the number removed equals the number of duplicate merge keys and not one more.', 'QUARANTINE', TRUE, 'scalar'),
-    ('silver', 'weather_clean', 'completeness', 'silver_at_recorded', 0.0, 'Every row records when it was cleaned', '[structural] Completeness on a column Silver alone is responsible for producing. It is what distinguishes rule changed from data changed when two runs disagree.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'weather_clean', 'completeness', 'source_file_month_is_real', 100.0, 'source_file_month holds a filename, not a placeholder', '[advisory] ADVISORY at 100.0, so it can only WARN. Bronze measured this at 100 percent because the loader wrote the literal placeholder rather than the filename. It is a real defect and the number is not tolerable, but the fix belongs to the loader, and blocking the Silver gate on someone else''s bug is how a gate gets switched off. Flip to 0.0 once the loader is fixed.', 'IGNORE', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. An empty table makes every SUM(CASE ...) NULL, and a NULL failed_rows falls through the status CASE to FAIL - loud, but by accident, and reported as dozens of unrelated failures rather than one cause.', 'QUARANTINE', TRUE, 'scalar'),
-    ('silver', 'weather_clean', 'validity', 'temperature_parsed', 0.0, 'Temperature survived the conversion from text', '[structural] Bronze weather is entirely text, so this is the try_cast equivalent of a load-fidelity check: a NULL here on a value that was present in Bronze is a conversion we lost. Kept separate from the range checks because out of range and not a number have different fixes.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'validity', 'temperature_plausible', 5.0, 'Temperature is within a plausible range', '[tolerated] Range assumes the Open-Meteo request used its metric defaults. If it used Fahrenheit this check is wrong and the results still look plausible - worth confirming against the loader once.', 'FLAG', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'validity', 'visibility_parsed', 0.0, 'Visibility survived the conversion from text', '[structural] Bronze weather is entirely text, so this is the try_cast equivalent of a load-fidelity check: a NULL here on a value that was present in Bronze is a conversion we lost. Kept separate from the range checks because out of range and not a number have different fixes.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'validity', 'weather_code_parsed', 5.0, 'Weather code survived the conversion from text', '[tolerated] Tolerated source imperfection at the policy threshold. No number here is derived from its own observed rate.', 'FLAG', FALSE, 'table_rows'),
-    ('silver', 'weather_clean', 'completeness', 'weather_hour_not_null', 0.0, 'Every weather row has a parsed hour', '[structural] The join key for the entire weather dimension. A null hour cannot match any trip.', 'QUARANTINE', TRUE, 'table_rows'),
-    ('silver', 'weather_clean', 'validity', 'wind_speed_parsed', 0.0, 'Wind speed survived the conversion from text', '[structural] Bronze weather is entirely text, so this is the try_cast equivalent of a load-fidelity check: a NULL here on a value that was present in Bronze is a conversion we lost. Kept separate from the range checks because out of range and not a number have different fixes.', 'QUARANTINE', FALSE, 'table_rows'),
-    ('gold', 'dim_date', 'completeness', 'date_key_not_null', 0.0, 'Every date row has a date_key', '[structural] The dimension''s key.', 'IGNORE', TRUE, 'table_rows'),
-    ('gold', 'dim_date', 'uniqueness', 'date_key_unique', 0.0, 'date_key is unique', '[structural] A duplicate dimension key fans out every join that touches it and inflates every total, without failing anything.', 'IGNORE', TRUE, 'table_rows'),
-    ('gold', 'dim_date', 'consistency', 'is_weekend_matches_day_of_week', 0.0, 'is_weekend agrees with day_of_week', '[structural] dayofweek() in Spark is 1 = Sunday through 7 = Saturday, NOT ISO. A weekend test written as IN (6, 7) returns Friday and Saturday, which is wrong in a way that survives every review because the column is still called is_weekend.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'dim_date', 'consistency', 'key_matches_full_date', 0.0, 'date_key is yyyyMMdd of full_date', '[structural] date_key is DERIVED from full_date, so the two can disagree. When they do, a query joining on date_key and one joining on full_date return different answers and neither looks wrong.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'dim_date', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. An empty table makes every SUM(CASE ...) NULL, and a NULL failed_rows falls through the status CASE to FAIL - loud, but by accident and reported as a wall of unrelated failures rather than one cause.', 'IGNORE', TRUE, 'scalar'),
-    ('gold', 'dim_taxi_zone', 'completeness', 'borough_not_blank', 0.0, 'Borough is present and not blank', '[structural] Completeness on a column the dimension is responsible for producing.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'dim_taxi_zone', 'completeness', 'location_id_not_null', 0.0, 'Every zone row has a LocationID', '[structural] The dimension''s key.', 'IGNORE', TRUE, 'table_rows'),
-    ('gold', 'dim_taxi_zone', 'uniqueness', 'location_id_unique', 0.0, 'LocationID is unique', '[structural] As above, on the dimension every trip joins to twice.', 'IGNORE', TRUE, 'table_rows'),
-    ('gold', 'dim_taxi_zone', 'business', 'lookup_has_265_zones', 0.0, 'The zone dimension holds exactly 265 rows', '[structural] Scalar check. The TLC lookup publishes 265 zones. A different number means the dimension was built from a partial load.', 'IGNORE', FALSE, 'scalar'),
-    ('gold', 'dim_taxi_zone', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. An empty table makes every SUM(CASE ...) NULL, and a NULL failed_rows falls through the status CASE to FAIL - loud, but by accident and reported as a wall of unrelated failures rather than one cause.', 'IGNORE', TRUE, 'scalar'),
-    ('gold', 'dim_weather', 'consistency', 'hour_temp_within_day_range', 0.0, 'The hour''s temperature sits inside its own day''s min and max', '[structural] temp_max_c and temp_min_c are windowed over the DAY while temp_avg_c is the hour''s own value, so every hour must sit inside its day''s range. A window written over the wrong partition shows up here and nowhere else.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'dim_weather', 'consistency', 'key_matches_timestamp', 0.0, 'weather_key is yyyyMMddHH of weather_timestamp', '[structural] As above, for yyyyMMddHH of weather_timestamp. The fact table stores weather_key but the Gold build JOINS on weather_timestamp, so both routes have to agree or the stored key points somewhere the join never went.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'dim_weather', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. An empty table makes every SUM(CASE ...) NULL, and a NULL failed_rows falls through the status CASE to FAIL - loud, but by accident and reported as a wall of unrelated failures rather than one cause.', 'IGNORE', TRUE, 'scalar'),
-    ('gold', 'dim_weather', 'completeness', 'weather_condition_not_null', 0.0, 'Every weather hour has a condition', '[structural] Gold''s wet/dry split reads this column. A null condition puts the hour in no bucket at all.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'dim_weather', 'completeness', 'weather_key_not_null', 0.0, 'Every weather row has a weather_key', '[structural] The dimension''s key.', 'IGNORE', TRUE, 'table_rows'),
-    ('gold', 'dim_weather', 'uniqueness', 'weather_key_unique', 0.0, 'weather_key is unique', '[structural] As above. Counted as COUNT(x) - COUNT(DISTINCT x): COUNT(DISTINCT) ignores nulls, so the COUNT(*) form would report a null key as a duplicate key.', 'IGNORE', TRUE, 'table_rows'),
-    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'dropoff_date_resolves', 5.0, 'Every dropoff_date finds a dim_date row', '[tolerated] NOT BLOCKING, and measured in TRIPS rather than distinct dates. dim_date is derived from the dates present in the weather feed, by design, so a trip dated outside the weather window has no calendar row - that is the convention, and Silver deliberately keeps those trips. Over ~100 distinct dates the known TLC strays are about 8 percent, a permanent FAIL at any tolerance purely because the denominator is small; over 133,367 trips the same defect is 0.008 percent. A month genuinely missing from the calendar is about a third of the rows and still fails at 5.0.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'dropoff_zone_resolves', 0.0, 'Every dropoff zone id finds a dim_taxi_zone row', '[structural] As above, for the destination half.', 'IGNORE', TRUE, 'distinct_ids'),
-    ('gold', 'fact_taxi_trip', 'consistency', 'duration_matches_timestamps', 0.0, 'trip_duration_minutes agrees with the two timestamps', '[structural] A derived column must agree with what it was derived from. Recomputed with unix_timestamp(), the same epoch arithmetic the Gold build uses -- timestampdiff() resolves the spring-forward gap differently and reports correct rows as defects. Tolerance 0.02 minutes absorbs the ROUND in the Gold build.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'fact_taxi_trip', 'uniqueness', 'one_row_per_trip_key', 0.0, 'trip_key is unique in the fact table', '[structural] The fact grain. A duplicate trip_key double-counts a trip in every aggregate, and the MERGE updates the same row more than once per run.', 'IGNORE', TRUE, 'table_rows'),
-    ('gold', 'fact_taxi_trip', 'consistency', 'pickup_before_dropoff', 0.0, 'Dropoff is not before pickup', '[structural] Silver already classifies reversed trips as FAIL, so a row here means one got past the classification or past the filter that should have excluded it.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'pickup_date_resolves', 5.0, 'Every pickup_date finds a dim_date row', '[tolerated] NOT BLOCKING, and measured in TRIPS rather than distinct dates. dim_date is derived from the dates present in the weather feed, by design, so a trip dated outside the weather window has no calendar row - that is the convention, and Silver deliberately keeps those trips. Over ~100 distinct dates the known TLC strays are about 8 percent, a permanent FAIL at any tolerance purely because the denominator is small; over 133,367 trips the same defect is 0.008 percent. A month genuinely missing from the calendar is about a third of the rows and still fails at 5.0.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'pickup_zone_resolves', 0.0, 'Every pickup zone id finds a dim_taxi_zone row', '[structural] Measured in distinct ids: one unmatched id is one thing to fix whether it touches six trips or sixty thousand. An unresolvable foreign key is worse than a missing row - the row is PRESENT, so COUNT(*) and SUM(total_amount) include it, then an INNER JOIN silently drops it while a LEFT JOIN buckets it under NULL. The total and the breakdown stop agreeing and nothing failed.', 'IGNORE', TRUE, 'distinct_ids'),
-    ('gold', 'fact_taxi_trip', 'consistency', 'quarantined_rows_in_gold', 0.0, 'No Silver FAIL row reached the fact table', '[structural] FAILS TODAY, on purpose. fact_taxi_trip reads green_taxi_clean rather than vw_green_taxi_valid, so rows Silver classified FAIL are in the fact table. One word in the fact MERGE''s FROM fixes it. Non-blocking because stopping the pipeline does not fix a FROM clause - the check reports the count until it is changed.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'fact_taxi_trip', 'consistency', 'revenue_preserved', 0.0, 'Total revenue survives the move into Gold', '[structural] Scalar check. A cast or a join that damaged a numeric column shows up here and almost nowhere else: row counts would still reconcile perfectly.', 'IGNORE', TRUE, 'scalar'),
-    ('gold', 'fact_taxi_trip', 'consistency', 'rows_reconcile_with_silver', 0.0, 'Fact rows equal the distinct trip keys Silver holds', '[structural] Scalar check. The expected count is the DISTINCT trip_key Silver holds, recomputed here with the same MD5 the Gold build uses rather than derived as a remainder - so the equation can actually fail on arithmetic, which a remainder-based one cannot.', 'IGNORE', TRUE, 'scalar'),
-    ('gold', 'fact_taxi_trip', 'completeness', 'table_not_empty', 0.0, 'The table holds at least one row', '[structural] Scalar check. An empty table makes every SUM(CASE ...) NULL, and a NULL failed_rows falls through the status CASE to FAIL - loud, but by accident and reported as a wall of unrelated failures rather than one cause.', 'IGNORE', TRUE, 'scalar'),
-    ('gold', 'fact_taxi_trip', 'completeness', 'trip_key_not_null', 0.0, 'Every fact row has a trip_key', '[structural] The fact''s own key, and the MERGE''s match column. A null makes the merge non-deterministic.', 'IGNORE', TRUE, 'table_rows'),
-    ('gold', 'fact_taxi_trip', 'business', 'trips_carrying_silver_warnings', 100.0, 'How many fact rows carry a Silver warning', '[advisory] ADVISORY at 100.0. qc_error_descriptions is carried into Gold, so the per-row detail survives the move. This is the headline number for it.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'trips_with_unmatched_pickup_zone', 100.0, 'How many fact rows have an unresolvable pickup zone', '[advisory] ADVISORY at 100.0, so it can only ever WARN. The same defect as pickup_zone_resolves counted in trips rather than keys - three zones and eight thousand trips are different sentences and a reviewer wants both. One defect should not stop the pipeline twice.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'trips_without_weather', 100.0, 'How many fact rows got no weather match at all', '[advisory] ADVISORY at 100.0. A trip with no weather hour cannot be classified wet or dry, so it drops out of the comparison the whole project is built on - silently, because the row is still counted everywhere else.', 'IGNORE', FALSE, 'table_rows'),
-    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'weather_hours_used_by_a_trip', 100.0, 'How many weather hours no trip references', '[advisory] ADVISORY at 100.0. An unused weather hour is normal - there are hours with no green taxi trips. A dimension where MOST rows are unused is not normal, and usually means the key convention drifted between the dimension and the fact.', 'IGNORE', FALSE, 'distinct_ids'),
-    ('gold', 'fact_taxi_trip', 'at_rest_integrity', 'weather_key_resolves', 0.0, 'Every non-null weather_key finds a dim_weather row', '[structural] Only keys that were actually set are checked. A NULL weather_key means no weather hour matched, which is the advisory trips_without_weather, not a broken reference. Temporarily non-blocking: the 5 known failures are stale keys in fact_taxi_trip left by a build that ran before the Gold notebook set its session timezone. dim_weather is correct; rebuilding the fact clears them. Restore blocking once that rebuild is confirmed at zero.', 'IGNORE', FALSE, 'distinct_ids')
-    AS t(layer, table_name, check_category, check_name, threshold_pct, rule_description, rationale, silver_action, blocking, denominator_scope);
-
-
-
--- The latest run of each layer, with what each failure actually means.
--- This is the table to put in the write-up.
-SELECT
-    d.layer, d.table_name, d.check_name,
-    d.failed_rows, d.total_rows, d.failed_pct, d.threshold_pct, d.status,
-    u.blocking, u.denominator_scope, u.silver_action, u.rule_description,
-    CASE WHEN d.status = 'FAIL' AND u.blocking THEN 'BLOCKING FAIL'
-         WHEN d.status = 'FAIL'                THEN 'fail (recorded, not blocking)'
-         ELSE d.status END                                  AS severity
-FROM       `nyc-mobility`.nyc_quality.vw_latest_dq_results d
-LEFT JOIN  `nyc-mobility`.nyc_quality.dq_rules             u
-       ON  d.layer      = u.layer
-      AND  d.table_name = u.table_name
-      AND  d.check_name = u.check_name
-WHERE  d.status <> 'PASS'
-ORDER  BY CASE WHEN d.status = 'FAIL' AND u.blocking THEN 0
-               WHEN d.status = 'FAIL'                THEN 1
-               ELSE 2 END,
-          d.failed_pct DESC;
-
-
--- If it ever exists from an older run, it is no longer created or used.
-DROP VIEW IF EXISTS `nyc-mobility`.nyc_quality.vw_dq_results_enriched;
-
-
-
-
-SELECT CASE WHEN rationale LIKE '[structural]%'  THEN 'structural'
-            WHEN rationale LIKE '[tolerated]%'   THEN 'tolerated'
-            WHEN rationale LIKE '[provisional]%' THEN 'provisional'
-            ELSE 'untagged' END                    AS basis,
-       COUNT(*)                                    AS rules,
-       ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct
-FROM   dq_rules
-WHERE  layer IN ('bronze', 'silver', 'gold') AND table_name IN ('green_taxi', 'taxi_zones', 'weather',
-                          'green_taxi_clean', 'taxi_zones_clean', 'weather_clean',
-                          'dim_date', 'dim_weather', 'dim_taxi_zone', 'fact_taxi_trip')
-GROUP  BY 1
-ORDER  BY rules DESC;
-
--- Everything still waiting for a real number.
-SELECT table_name, check_name, threshold_pct, rule_description
-FROM   dq_rules
-WHERE  layer IN ('bronze', 'silver', 'gold') AND table_name IN ('green_taxi', 'taxi_zones', 'weather',
-                          'green_taxi_clean', 'taxi_zones_clean', 'weather_clean',
-                          'dim_date', 'dim_weather', 'dim_taxi_zone', 'fact_taxi_trip')
-  AND  rationale LIKE '[provisional]%'
-ORDER  BY table_name, check_name;
-
--- ## 3. Drift guard
+-- # 2. Read-back
 --
--- A FULL OUTER JOIN on the check name is the right tool here: it is the
--- one join shape that shows both sides of a mismatch at once — a check
--- that ran with no documented rule, and a rule with no matching check.
--- An inner join would show neither.
---
--- Run it after every change. If both columns are populated on every row,
--- the catalogue and the notebook agree.
+-- The shape of what just landed, so a wrong count is visible immediately
+-- rather than in a dashboard three days later.
+
+SELECT layer,
+       COUNT(*)                                              AS rules,
+       SUM(CASE WHEN blocking THEN 1 ELSE 0 END)             AS blocking,
+       SUM(CASE WHEN threshold_pct = 0   THEN 1 ELSE 0 END)  AS strict,
+       SUM(CASE WHEN threshold_pct = 100 THEN 1 ELSE 0 END)  AS advisory,
+       SUM(CASE WHEN min_failed_rows = 0 THEN 1 ELSE 0 END)  AS no_row_floor
+FROM   nyc_quality.dq_rules
+GROUP  BY layer
+ORDER  BY CASE layer WHEN 'preload' THEN 0 WHEN 'bronze' THEN 1
+                     WHEN 'silver'  THEN 2 WHEN 'gold'   THEN 3 ELSE 4 END;
+
+-- What can actually stop each layer, named.
+SELECT layer, table_name,
+       concat_ws(', ', collect_list(check_name)) AS blocking_checks
+FROM   nyc_quality.dq_rules
+WHERE  blocking
+GROUP  BY layer, table_name
+ORDER  BY layer, table_name;
 
 
--- The latest run OF EACH LAYER. Bronze and Silver are separate notebooks with
--- separate run ids, so there is no single "the latest run" that covers both:
--- MAX(run_ts) across the two always names the Silver one, because Silver runs
--- second. An earlier version resolved one run_id that way and then filtered
--- layer = 'bronze', which asked for Bronze rows carrying a Silver run id --
--- always zero rows, so every rule reported as DOCUMENTED BUT DID NOT RUN.
+-- # 3. Drift — the reason this notebook exists
 --
--- GROUP BY layer is what makes it per-layer, and it is the same shape the
--- vw_latest_* views use for the same reason.
+-- A catalogue is only worth reading if it is true. These two queries compare
+-- dq_rules against what the notebooks actually emitted into dq_results, in
+-- both directions:
+--
+--   * **documented, never run** -- a rule in this table that no run has
+--     produced. Either the check was renamed or removed and the catalogue was
+--     not, or the layer has not been run since the rule was added.
+--   * **run, never documented** -- a check writing results that this table
+--     does not describe. Someone added a check and did not catalogue it.
+--
+-- Run this after every full pipeline pass. Expect zero rows from both.
+--
+-- Scoped to the most recent run of each layer, so a rule added today is not
+-- reported as drift against results from last week.
+
+CREATE OR REPLACE TEMPORARY VIEW vw_latest_emitted AS
 WITH latest AS (
     SELECT layer, MAX(run_ts) AS max_ts
-    FROM   dq_results
-    WHERE  layer IN ('bronze', 'silver', 'gold')
+    FROM   nyc_quality.dq_results
     GROUP  BY layer
-),
-ran AS (
-    SELECT DISTINCT d.layer, d.table_name, d.check_name, d.threshold_pct
-    FROM       dq_results d
-    INNER JOIN latest l ON d.layer = l.layer AND d.run_ts = l.max_ts
-    WHERE d.table_name IN ('green_taxi', 'taxi_zones', 'weather',
-                          'green_taxi_clean', 'taxi_zones_clean', 'weather_clean',
-                          'dim_date', 'dim_weather', 'dim_taxi_zone', 'fact_taxi_trip')
-),
-documented AS (
-    SELECT layer, table_name, check_name, threshold_pct
-    FROM   dq_rules
-    WHERE  layer IN ('bronze', 'silver', 'gold') AND table_name IN ('green_taxi', 'taxi_zones', 'weather',
-                          'green_taxi_clean', 'taxi_zones_clean', 'weather_clean',
-                          'dim_date', 'dim_weather', 'dim_taxi_zone', 'fact_taxi_trip')
+)
+SELECT DISTINCT d.layer, d.table_name, d.check_name
+FROM   nyc_quality.dq_results d
+JOIN   latest l ON d.layer = l.layer AND d.run_ts = l.max_ts
+WHERE  d.check_category <> 'gate';
+
+-- Documented here, not produced by the latest run of that layer.
+SELECT r.layer, r.table_name, r.check_name, 'documented, never run' AS drift
+FROM       nyc_quality.dq_rules r
+LEFT  JOIN vw_latest_emitted e
+       ON  e.layer = r.layer AND e.table_name = r.table_name
+       AND e.check_name = r.check_name
+WHERE  e.check_name IS NULL
+  -- Only layers that have actually run; an unrun layer is not drift.
+  AND  r.layer IN (SELECT DISTINCT layer FROM vw_latest_emitted)
+
+UNION ALL
+
+-- Produced by the latest run, not documented here.
+SELECT e.layer, e.table_name, e.check_name, 'run, never documented'
+FROM       vw_latest_emitted e
+LEFT  JOIN nyc_quality.dq_rules r
+       ON  e.layer = r.layer AND e.table_name = r.table_name
+       AND e.check_name = r.check_name
+WHERE  r.check_name IS NULL
+
+ORDER  BY drift, layer, table_name, check_name;
+
+
+-- Thresholds that disagree between the catalogue and the run. The notebooks
+-- are the source of truth; a row here means this table needs regenerating.
+SELECT d.layer, d.table_name, d.check_name,
+       r.threshold_pct AS catalogued, d.threshold_pct AS ran,
+       r.min_failed_rows AS catalogued_floor, d.min_failed_rows AS ran_floor
+FROM   nyc_quality.dq_results d
+JOIN   nyc_quality.dq_rules   r
+       ON  r.layer = d.layer AND r.table_name = d.table_name
+       AND r.check_name = d.check_name
+JOIN  (SELECT layer, MAX(run_ts) AS max_ts FROM nyc_quality.dq_results GROUP BY layer) l
+       ON  d.layer = l.layer AND d.run_ts = l.max_ts
+WHERE  d.check_category <> 'gate'
+  AND (r.threshold_pct   <> d.threshold_pct
+    OR r.min_failed_rows <> d.min_failed_rows)
+ORDER  BY d.layer, d.table_name, d.check_name;
+
+
+-- # 4. The catalogue, joined to the latest result
+--
+-- One view for the dashboard: every rule, what it means, and how it did on
+-- the most recent run of its layer. This is what turns a status column into
+-- something a reviewer can act on without opening a notebook.
+
+CREATE OR REPLACE VIEW nyc_quality.vw_dq_catalogue AS
+WITH latest AS (
+    SELECT layer, MAX(run_ts) AS max_ts
+    FROM   nyc_quality.dq_results
+    GROUP  BY layer
 )
 SELECT
-    COALESCE(r.layer, d.layer)                                 AS layer,
-    COALESCE(r.table_name, d.table_name)                       AS table_name,
-    COALESCE(r.check_name, d.check_name)                       AS check_name,
-    r.threshold_pct                                            AS threshold_in_run,
-    d.threshold_pct                                            AS threshold_in_rules,
-    CASE WHEN d.check_name IS NULL               THEN 'RAN BUT NOT DOCUMENTED'
-         WHEN r.check_name IS NULL               THEN 'DOCUMENTED BUT DID NOT RUN'
-         WHEN r.threshold_pct <> d.threshold_pct THEN 'THRESHOLD MISMATCH'
-         ELSE 'ok' END                                         AS drift
-FROM ran r
--- layer is part of the key: the same check_name legitimately exists on both
--- layers (table_not_empty, dq_status_populated, rows_reconcile_with_bronze),
--- and without it those rows cross-join between layers.
-FULL OUTER JOIN documented d
-  ON  r.layer      = d.layer
-  AND r.table_name = d.table_name
-  AND r.check_name = d.check_name
-WHERE d.check_name IS NULL
-   OR r.check_name IS NULL
-   OR r.threshold_pct <> d.threshold_pct
-ORDER BY drift, layer, table_name, check_name;
+    r.layer, r.table_name, r.check_category, r.check_name,
+    r.rule_description, r.rationale,
+    r.threshold_pct, r.warn_pct, r.min_failed_rows,
+    r.blocking, r.silver_action, r.denominator_scope,
+    d.status, d.failed_rows, d.total_rows, d.failed_pct,
+    d.batch_month, d.run_ts
+FROM       nyc_quality.dq_rules r
+LEFT  JOIN latest l  ON l.layer = r.layer
+LEFT  JOIN nyc_quality.dq_results d
+       ON  d.layer = r.layer AND d.table_name = r.table_name
+       AND d.check_name = r.check_name AND d.run_ts = l.max_ts;
 
-
--- 4. The catalogue, for the write-up
-
-SELECT table_name, check_category, check_name, threshold_pct,
-       blocking, denominator_scope, silver_action, rule_description
-FROM   dq_rules
-WHERE  layer IN ('bronze', 'silver', 'gold') AND table_name IN ('green_taxi', 'taxi_zones', 'weather',
-                          'green_taxi_clean', 'taxi_zones_clean', 'weather_clean',
-                          'dim_date', 'dim_weather', 'dim_taxi_zone', 'fact_taxi_trip')
-ORDER  BY table_name,
-          CASE check_category WHEN 'completeness' THEN 1 WHEN 'uniqueness' THEN 2
-               WHEN 'validity' THEN 3 WHEN 'consistency' THEN 4 ELSE 5 END,
-          check_name;
-
--- The reasoning behind every non-default threshold — the rows a reviewer
--- is most likely to challenge.
-SELECT table_name, check_name, threshold_pct, rationale
-FROM   dq_rules
-WHERE  layer IN ('bronze', 'silver', 'gold') AND table_name IN ('green_taxi', 'taxi_zones', 'weather',
-                          'green_taxi_clean', 'taxi_zones_clean', 'weather_clean',
-                          'dim_date', 'dim_weather', 'dim_taxi_zone', 'fact_taxi_trip')
-  AND  threshold_pct NOT IN (5.0)
-ORDER  BY threshold_pct, table_name, check_name;
-
---  Proof that a rerun changes nothing
-SELECT version, timestamp, operation,
-       operationMetrics['numTargetRowsInserted'] AS inserted,
-       operationMetrics['numTargetRowsUpdated']  AS updated,
-       operationMetrics['numTargetRowsDeleted']  AS deleted,
-       operationMetrics['numTargetRowsCopied']   AS copied
-FROM   (DESCRIBE HISTORY dq_rules)
-ORDER  BY version DESC
-LIMIT  5;
+-- Everything that is not PASS on the latest run, with its reasoning attached.
+SELECT layer, table_name, check_name, status,
+       failed_rows, total_rows, failed_pct, threshold_pct, min_failed_rows,
+       blocking, rule_description, rationale
+FROM   nyc_quality.vw_dq_catalogue
+WHERE  status IS NOT NULL AND status <> 'PASS'
+ORDER  BY CASE status WHEN 'FAIL' THEN 0 WHEN 'WARN' THEN 1 ELSE 2 END,
+          blocking DESC, failed_pct DESC;
