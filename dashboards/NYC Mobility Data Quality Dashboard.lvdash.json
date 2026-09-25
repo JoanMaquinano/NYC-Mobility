@@ -28,6 +28,7 @@
       "displayName": "Latest DQ Check Results",
       "queryLines": [
         "SELECT\n",
+        "  batch_month,\n",
         "  layer,\n",
         "  table_name,\n",
         "  check_category,\n",
@@ -53,6 +54,7 @@
       "displayName": "Failures & Warnings Detail",
       "queryLines": [
         "SELECT\n",
+        "  d.batch_month,\n",
         "  d.layer,\n",
         "  d.table_name,\n",
         "  d.check_name,\n",
@@ -96,6 +98,7 @@
       "displayName": "DQ Run History",
       "queryLines": [
         "SELECT\n",
+        "  batch_month,\n",
         "  run_id,\n",
         "  run_ts,\n",
         "  layer,\n",
@@ -117,6 +120,7 @@
       "displayName": "Latest DQ Run Summary",
       "queryLines": [
         "SELECT\n",
+        "  batch_month,\n",
         "  run_id,\n",
         "  run_ts,\n",
         "  layer,\n",
@@ -176,6 +180,7 @@
       "displayName": "Gold DQ Run Summary",
       "queryLines": [
         "SELECT\n",
+        "  batch_month,\n",
         "  checks_run,\n",
         "  checks_passed,\n",
         "  checks_warned,\n",
@@ -192,6 +197,7 @@
       "displayName": "Gold DQ Check Results",
       "queryLines": [
         "SELECT\n",
+        "  batch_month,\n",
         "  table_name,\n",
         "  check_category,\n",
         "  check_name,\n",
@@ -218,6 +224,7 @@
       "displayName": "Gold At-Rest Integrity Checks",
       "queryLines": [
         "SELECT\n",
+        "  batch_month,\n",
         "  check_name,\n",
         "  failed_rows,\n",
         "  total_rows,\n",
@@ -506,6 +513,10 @@
                   "datasetName": "latest_run",
                   "fields": [
                     {
+                      "name": "batch_month",
+                      "expression": "`batch_month`"
+                    },
+                    {
                       "name": "layer",
                       "expression": "`layer`"
                     },
@@ -545,12 +556,18 @@
             "spec": {
               "frame": {
                 "showTitle": true,
-                "title": "Latest Run Summary"
+                "title": {
+                  "value": "Latest Run Summary",
+                  "fields": []
+                }
               },
               "version": 2,
               "widgetType": "table",
               "encodings": {
                 "columns": [
+                  {
+                    "fieldName": "batch_month"
+                  },
                   {
                     "fieldName": "layer"
                   },
@@ -611,7 +628,7 @@
             "x": 0,
             "y": 0,
             "width": 12,
-            "height": 1
+            "height": 2
           }
         },
         {
@@ -680,7 +697,7 @@
           },
           "position": {
             "x": 0,
-            "y": 1,
+            "y": 2,
             "width": 12,
             "height": 5
           }
@@ -694,6 +711,10 @@
                 "query": {
                   "datasetName": "latest_results",
                   "fields": [
+                    {
+                      "name": "batch_month",
+                      "expression": "`batch_month`"
+                    },
                     {
                       "name": "layer",
                       "expression": "`layer`"
@@ -738,12 +759,18 @@
             "spec": {
               "frame": {
                 "showTitle": true,
-                "title": "All Check Results"
+                "title": {
+                  "value": "All Check Results",
+                  "fields": []
+                }
               },
               "version": 2,
               "widgetType": "table",
               "encodings": {
                 "columns": [
+                  {
+                    "fieldName": "batch_month"
+                  },
                   {
                     "fieldName": "layer"
                   },
@@ -780,7 +807,7 @@
           },
           "position": {
             "x": 0,
-            "y": 6,
+            "y": 7,
             "width": 12,
             "height": 8
           }
@@ -807,7 +834,7 @@
             "x": 0,
             "y": 0,
             "width": 12,
-            "height": 1
+            "height": 2
           }
         },
         {
@@ -848,7 +875,7 @@
           },
           "position": {
             "x": 0,
-            "y": 1,
+            "y": 2,
             "width": 6,
             "height": 2
           }
@@ -891,7 +918,7 @@
           },
           "position": {
             "x": 6,
-            "y": 1,
+            "y": 2,
             "width": 6,
             "height": 2
           }
@@ -905,6 +932,10 @@
                 "query": {
                   "datasetName": "failures_detail",
                   "fields": [
+                    {
+                      "name": "batch_month",
+                      "expression": "`batch_month`"
+                    },
                     {
                       "name": "layer",
                       "expression": "`layer`"
@@ -965,12 +996,18 @@
             "spec": {
               "frame": {
                 "showTitle": true,
-                "title": "Failures & Warnings Detail"
+                "title": {
+                  "value": "Failures & Warnings Detail",
+                  "fields": []
+                }
               },
               "version": 2,
               "widgetType": "table",
               "encodings": {
                 "columns": [
+                  {
+                    "fieldName": "batch_month"
+                  },
                   {
                     "fieldName": "layer"
                   },
@@ -1019,7 +1056,7 @@
           },
           "position": {
             "x": 0,
-            "y": 3,
+            "y": 4,
             "width": 12,
             "height": 10
           }
@@ -1046,7 +1083,7 @@
             "x": 0,
             "y": 0,
             "width": 12,
-            "height": 1
+            "height": 2
           }
         },
         {
@@ -1112,7 +1149,7 @@
           },
           "position": {
             "x": 0,
-            "y": 1,
+            "y": 2,
             "width": 6,
             "height": 5
           }
@@ -1169,7 +1206,7 @@
           },
           "position": {
             "x": 6,
-            "y": 1,
+            "y": 2,
             "width": 6,
             "height": 5
           }
@@ -1269,7 +1306,7 @@
           },
           "position": {
             "x": 0,
-            "y": 6,
+            "y": 7,
             "width": 12,
             "height": 8
           }
@@ -1296,7 +1333,7 @@
             "x": 0,
             "y": 0,
             "width": 12,
-            "height": 1
+            "height": 2
           }
         },
         {
@@ -1362,7 +1399,7 @@
           },
           "position": {
             "x": 0,
-            "y": 1,
+            "y": 2,
             "width": 12,
             "height": 5
           }
@@ -1430,7 +1467,7 @@
           },
           "position": {
             "x": 0,
-            "y": 6,
+            "y": 7,
             "width": 12,
             "height": 5
           }
@@ -1444,6 +1481,10 @@
                 "query": {
                   "datasetName": "run_history",
                   "fields": [
+                    {
+                      "name": "batch_month",
+                      "expression": "`batch_month`"
+                    },
                     {
                       "name": "run_ts",
                       "expression": "`run_ts`"
@@ -1484,12 +1525,18 @@
             "spec": {
               "frame": {
                 "showTitle": true,
-                "title": "Recent Runs"
+                "title": {
+                  "value": "Recent Runs",
+                  "fields": []
+                }
               },
               "version": 2,
               "widgetType": "table",
               "encodings": {
                 "columns": [
+                  {
+                    "fieldName": "batch_month"
+                  },
                   {
                     "fieldName": "run_ts"
                   },
@@ -1523,7 +1570,7 @@
           },
           "position": {
             "x": 0,
-            "y": 11,
+            "y": 12,
             "width": 12,
             "height": 4
           }
@@ -1550,7 +1597,7 @@
             "x": 0,
             "y": 0,
             "width": 12,
-            "height": 1
+            "height": 2
           }
         },
         {
@@ -1591,7 +1638,7 @@
           },
           "position": {
             "x": 0,
-            "y": 1,
+            "y": 2,
             "width": 3,
             "height": 2
           }
@@ -1634,7 +1681,7 @@
           },
           "position": {
             "x": 3,
-            "y": 1,
+            "y": 2,
             "width": 3,
             "height": 2
           }
@@ -1677,7 +1724,7 @@
           },
           "position": {
             "x": 6,
-            "y": 1,
+            "y": 2,
             "width": 3,
             "height": 2
           }
@@ -1720,7 +1767,7 @@
           },
           "position": {
             "x": 9,
-            "y": 1,
+            "y": 2,
             "width": 3,
             "height": 2
           }
@@ -1788,7 +1835,7 @@
           },
           "position": {
             "x": 0,
-            "y": 3,
+            "y": 4,
             "width": 12,
             "height": 5
           }
@@ -1802,6 +1849,10 @@
                 "query": {
                   "datasetName": "gold_at_rest",
                   "fields": [
+                    {
+                      "name": "batch_month",
+                      "expression": "`batch_month`"
+                    },
                     {
                       "name": "check_name",
                       "expression": "`check_name`"
@@ -1834,12 +1885,18 @@
             "spec": {
               "frame": {
                 "showTitle": true,
-                "title": "Gold At-Rest Integrity"
+                "title": {
+                  "value": "Gold At-Rest Integrity",
+                  "fields": []
+                }
               },
               "version": 2,
               "widgetType": "table",
               "encodings": {
                 "columns": [
+                  {
+                    "fieldName": "batch_month"
+                  },
                   {
                     "fieldName": "check_name"
                   },
@@ -1867,7 +1924,7 @@
           },
           "position": {
             "x": 0,
-            "y": 8,
+            "y": 9,
             "width": 12,
             "height": 5
           }
@@ -1881,6 +1938,10 @@
                 "query": {
                   "datasetName": "gold_results",
                   "fields": [
+                    {
+                      "name": "batch_month",
+                      "expression": "`batch_month`"
+                    },
                     {
                       "name": "table_name",
                       "expression": "`table_name`"
@@ -1921,12 +1982,18 @@
             "spec": {
               "frame": {
                 "showTitle": true,
-                "title": "All Gold Check Results"
+                "title": {
+                  "value": "All Gold Check Results",
+                  "fields": []
+                }
               },
               "version": 2,
               "widgetType": "table",
               "encodings": {
                 "columns": [
+                  {
+                    "fieldName": "batch_month"
+                  },
                   {
                     "fieldName": "table_name"
                   },
@@ -1960,7 +2027,7 @@
           },
           "position": {
             "x": 0,
-            "y": 13,
+            "y": 14,
             "width": 12,
             "height": 8
           }
