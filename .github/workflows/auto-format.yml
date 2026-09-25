@@ -1,4 +1,4 @@
-name: Auto Format & Commit
+name: Auto Format Source Files
 
 on:
   pull_request:
@@ -28,10 +28,13 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Format Python files
         run: |
-          pip install --upgrade pip
-          pip install sqlfluff[databricks] black isort nbqa nbstripout
+          python -m black src tests
+          python -m isort src tests
+      
+      - name: Format Databricks SQL files
+        run: python -m sqlfluff fix --config .sqlfluff src tests --force
 
       - name: Run SQLFluff fix
         run: |
@@ -45,30 +48,14 @@ jobs:
         run: |
           isort . --profile black
 
-      - name: Format Jupyter notebooks with black
-        run: |
-          nbqa black . --line-length 120 --exclude notebooks/,venv/
-
-      - name: Sort imports in Jupyter notebooks with isort
-        run: |
-          nbqa isort . --profile black --exclude notebooks/,venv/
-
-      - name: Strip notebook outputs
-        run: |
-          find . -type f -name "*.ipynb" -not -path "./.git/*" -print0 | xargs -0 -r nbstripout
-
       - name: Commit changes if any
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: 'chore: auto-format SQL, Python, and Jupyter notebooks'
           commit_options: '--no-verify'
           file_pattern: |
-            *.py
-            *.sql
-            *.ipynb
-            src/
-            tests/
-            dashboards/
+            src/**
+            tests/**
           skip_fetch: false
           skip_checkout: false
 
