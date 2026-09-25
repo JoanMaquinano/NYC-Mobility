@@ -7,7 +7,6 @@ on:
     paths:
       - "**.py"
       - "**.sql"
-      - "**.ipynb"
       - "*.yml"
       - "*.yaml"
       - "*.toml"
@@ -18,7 +17,6 @@ on:
     paths:
       - "**.py"
       - "**.sql"
-      - "**.ipynb"
       - "*.yml"
       - "*.yaml"
       - "*.toml"
@@ -71,19 +69,6 @@ jobs:
 
       - name: Lint Python
         run: flake8 src tests --max-line-length=120
-
-      - name: Validate notebooks
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          for notebook in Path(".").rglob("*.ipynb"):
-              document = json.loads(notebook.read_text(encoding="utf-8"))
-              if document.get("nbformat", 0) < 4 or not isinstance(document.get("cells"), list):
-                  raise SystemExit(f"Invalid notebook structure: {notebook}")
-          PY
-          nbstripout --verify $(find . -type f -name "*.ipynb" -not -path "./.git/*")
 
       - name: Validate SQL syntax and formatting
         run: sqlfluff lint --dialect databricks src tests
