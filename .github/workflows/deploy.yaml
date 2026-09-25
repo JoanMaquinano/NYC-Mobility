@@ -24,7 +24,7 @@ jobs:
     name: Deploy and run staging bundle
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    environment: staging
+    environment: dev
 
     steps:
       - name: Check out repository

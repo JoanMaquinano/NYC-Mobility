@@ -3,6 +3,9 @@ dialect = databricks
 templater = placeholder
 max_line_length = 120
 
+[sqlfluff:templater:placeholder]
+param_style = colon
+
 [sqlfluff:indentation]
 tab_space_size = 4
 indent_unit = space
