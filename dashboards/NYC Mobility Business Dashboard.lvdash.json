@@ -210,6 +210,24 @@
           }
         ]
       }
+    },
+    {
+      "name": "top_15_zones",
+      "displayName": "Top 15 Pickup Zones",
+      "queryLines": [
+        "SELECT\n",
+        "  z.zone,\n",
+        "  COUNT(*) as trip_count\n",
+        "FROM\n",
+        "  main.taxi_trips.fact_taxi_trip t\n",
+        "    INNER JOIN main.taxi_trips.dim_taxi_zone z\n",
+        "      ON t.pickup_location_id = z.location_id\n",
+        "GROUP BY\n",
+        "  z.zone\n",
+        "ORDER BY\n",
+        "  trip_count DESC\n",
+        "LIMIT 15"
+      ]
     }
   ],
   "relationshipGraphs": [
@@ -230,6 +248,10 @@
         {
           "name": "fact_taxi_trip",
           "datasetName": "fb2e456c"
+        },
+        {
+          "name": "Top_15_Pickup_Zones",
+          "datasetName": "top_15_zones"
         }
       ],
       "relationships": [
@@ -653,36 +675,56 @@
                 "query": {
                   "fields": [
                     {
-                      "name": "dim_taxi_zone__zone_name",
-                      "expression": "`dim_taxi_zone`.`zone_name`"
-                    },
-                    {
                       "name": "measure(fact_taxi_trip__trip_count)",
                       "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    },
+                    {
+                      "name": "dim_taxi_zone__zone",
+                      "expression": "`dim_taxi_zone`.`zone`"
                     }
                   ],
-                  "disaggregated": false
+                  "filters": [
+                    {
+                      "expression": "`dim_taxi_zone`.`zone` IN ('East Harlem North', 'East Harlem South', 'Forest Hills', 'Morningside Heights', 'Central Park', 'Elmhurst', 'Central Harlem', 'Fort Greene', 'Downtown Brooklyn/MetroTech', 'Jamaica', 'Washington Heights South', 'Central Harlem North', 'DUMBO/Vinegar Hill', 'Jackson Heights', 'Astoria')"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "MEASURE(`fact_taxi_trip`.`trip_count`)"
+                    }
+                  ]
                 }
               }
             ],
             "spec": {
               "frame": {
                 "showTitle": true,
-                "title": "Top Pickup Zones by Trip Count"
+                "title": {
+                  "value": "Top Pickup Zones by Trip Count",
+                  "fields": []
+                }
               },
               "version": 3,
               "widgetType": "bar",
               "encodings": {
                 "x": {
-                  "fieldName": "dim_taxi_zone__zone_name",
-                  "scale": {
-                    "type": "categorical"
-                  }
-                },
-                "y": {
                   "fieldName": "measure(fact_taxi_trip__trip_count)",
                   "scale": {
                     "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "dim_taxi_zone__zone",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "measure-reversed",
+                      "measure": {
+                        "fieldName": "measure(fact_taxi_trip__trip_count)"
+                      }
+                    }
                   }
                 }
               },
@@ -693,9 +735,9 @@
           },
           "position": {
             "x": 6,
-            "y": 8,
+            "y": 19,
             "width": 6,
-            "height": 5
+            "height": 10
           }
         },
         {
@@ -706,10 +748,6 @@
                 "name": "main_query",
                 "query": {
                   "fields": [
-                    {
-                      "name": "dim_taxi_zone__zone_name",
-                      "expression": "`dim_taxi_zone`.`zone_name`"
-                    },
                     {
                       "name": "dim_taxi_zone__borough",
                       "expression": "`dim_taxi_zone`.`borough`"
@@ -729,6 +767,10 @@
                     {
                       "name": "measure(fact_taxi_trip__total_revenue)",
                       "expression": "MEASURE(`fact_taxi_trip`.`total_revenue`)"
+                    },
+                    {
+                      "name": "dim_taxi_zone__zone",
+                      "expression": "`dim_taxi_zone`.`zone`"
                     }
                   ],
                   "disaggregated": false
@@ -738,15 +780,15 @@
             "spec": {
               "frame": {
                 "showTitle": true,
-                "title": "Zone Trip Volume Summary"
+                "title": {
+                  "value": "Zone Trip Volume Summary",
+                  "fields": []
+                }
               },
               "version": 2,
               "widgetType": "table",
               "encodings": {
                 "columns": [
-                  {
-                    "fieldName": "dim_taxi_zone__zone_name"
-                  },
                   {
                     "fieldName": "dim_taxi_zone__borough"
                   },
@@ -761,6 +803,9 @@
                   },
                   {
                     "fieldName": "measure(fact_taxi_trip__total_revenue)"
+                  },
+                  {
+                    "fieldName": "dim_taxi_zone__zone"
                   }
                 ]
               },

@@ -1,0 +1,1192 @@
+{
+  "datasets": [
+    {
+      "name": "dq_results",
+      "displayName": "DQ Results (Current Batch)",
+      "config": {
+        "version": "1.1",
+        "source": "nyc_mobility.nyc_quality.vw_current_batch_dq",
+        "dimensions": [
+          {
+            "name": "layer",
+            "expr": "layer",
+            "displayName": "Layer"
+          },
+          {
+            "name": "table_name",
+            "expr": "table_name",
+            "displayName": "Table"
+          },
+          {
+            "name": "check_category",
+            "expr": "check_category",
+            "displayName": "Check Category"
+          },
+          {
+            "name": "check_name",
+            "expr": "check_name",
+            "displayName": "Check Name"
+          },
+          {
+            "name": "status",
+            "expr": "status",
+            "displayName": "Status"
+          },
+          {
+            "name": "batch_month",
+            "expr": "batch_month",
+            "displayName": "Batch Month"
+          }
+        ],
+        "measures": [
+          {
+            "name": "check_count",
+            "expr": "COUNT(*)",
+            "displayName": "Check Count"
+          },
+          {
+            "name": "failed_rows",
+            "expr": "SUM(failed_rows)",
+            "displayName": "Failed Rows"
+          },
+          {
+            "name": "total_rows",
+            "expr": "SUM(total_rows)",
+            "displayName": "Total Rows"
+          },
+          {
+            "name": "failed_pct",
+            "expr": "AVG(failed_pct)",
+            "displayName": "Failed %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "threshold_pct",
+            "expr": "AVG(threshold_pct)",
+            "displayName": "Threshold %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 1.0
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "dq_rules",
+      "displayName": "DQ Rules Catalogue",
+      "config": {
+        "version": "1.1",
+        "source": "nyc_mobility.nyc_quality.dq_rules",
+        "dimensions": [
+          {
+            "name": "layer",
+            "expr": "layer",
+            "displayName": "Layer"
+          },
+          {
+            "name": "table_name",
+            "expr": "table_name",
+            "displayName": "Table"
+          },
+          {
+            "name": "check_category",
+            "expr": "check_category",
+            "displayName": "Category"
+          },
+          {
+            "name": "check_name",
+            "expr": "check_name",
+            "displayName": "Check Name"
+          },
+          {
+            "name": "blocking",
+            "expr": "blocking",
+            "displayName": "Blocking"
+          },
+          {
+            "name": "silver_action",
+            "expr": "silver_action",
+            "displayName": "Silver Action"
+          },
+          {
+            "name": "rule_description",
+            "expr": "rule_description",
+            "displayName": "Rule Description"
+          },
+          {
+            "name": "rationale",
+            "expr": "rationale",
+            "displayName": "Rationale"
+          },
+          {
+            "name": "denominator_scope",
+            "expr": "denominator_scope",
+            "displayName": "Denominator Scope"
+          },
+          {
+            "name": "threshold_pct",
+            "expr": "threshold_pct",
+            "displayName": "Threshold %"
+          },
+          {
+            "name": "warn_pct",
+            "expr": "warn_pct",
+            "displayName": "Warn %"
+          },
+          {
+            "name": "min_failed_rows",
+            "expr": "min_failed_rows",
+            "displayName": "Min Failed Rows"
+          }
+        ],
+        "measures": [
+          {
+            "name": "rule_count",
+            "expr": "COUNT(*)",
+            "displayName": "Rule Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dq_run_log",
+      "displayName": "DQ Run Log (Latest)",
+      "config": {
+        "version": "1.1",
+        "source": "nyc_mobility.nyc_quality.vw_latest_dq_run",
+        "dimensions": [
+          {
+            "name": "run_id",
+            "expr": "run_id",
+            "displayName": "Run ID"
+          },
+          {
+            "name": "run_ts",
+            "expr": "run_ts",
+            "displayName": "Run Timestamp"
+          },
+          {
+            "name": "layer",
+            "expr": "layer",
+            "displayName": "Layer"
+          },
+          {
+            "name": "overall_status",
+            "expr": "overall_status",
+            "displayName": "Overall Status"
+          },
+          {
+            "name": "batch_month",
+            "expr": "batch_month",
+            "displayName": "Batch Month"
+          },
+          {
+            "name": "finished_at",
+            "expr": "finished_at",
+            "displayName": "Finished At"
+          }
+        ],
+        "measures": [
+          {
+            "name": "checks_run",
+            "expr": "SUM(checks_run)",
+            "displayName": "Checks Run"
+          },
+          {
+            "name": "checks_passed",
+            "expr": "SUM(checks_passed)",
+            "displayName": "Checks Passed"
+          },
+          {
+            "name": "checks_warned",
+            "expr": "SUM(checks_warned)",
+            "displayName": "Checks Warned"
+          },
+          {
+            "name": "checks_failed",
+            "expr": "SUM(checks_failed)",
+            "displayName": "Checks Failed"
+          },
+          {
+            "name": "checks_skipped",
+            "expr": "SUM(checks_skipped)",
+            "displayName": "Checks Skipped"
+          },
+          {
+            "name": "tables_checked",
+            "expr": "SUM(tables_checked)",
+            "displayName": "Tables Checked"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dq_monthly",
+      "displayName": "DQ Monthly Trends",
+      "config": {
+        "version": "1.1",
+        "source": "nyc_mobility.nyc_quality.vw_dq_by_month",
+        "dimensions": [
+          {
+            "name": "batch_month",
+            "expr": "batch_month",
+            "displayName": "Batch Month"
+          },
+          {
+            "name": "layer",
+            "expr": "layer",
+            "displayName": "Layer"
+          },
+          {
+            "name": "status",
+            "expr": "status",
+            "displayName": "Status"
+          },
+          {
+            "name": "check_category",
+            "expr": "check_category",
+            "displayName": "Check Category"
+          },
+          {
+            "name": "check_name",
+            "expr": "check_name",
+            "displayName": "Check Name"
+          },
+          {
+            "name": "table_name",
+            "expr": "table_name",
+            "displayName": "Table"
+          }
+        ],
+        "measures": [
+          {
+            "name": "check_count",
+            "expr": "COUNT(*)",
+            "displayName": "Check Count"
+          },
+          {
+            "name": "failed_rows",
+            "expr": "SUM(failed_rows)",
+            "displayName": "Failed Rows"
+          },
+          {
+            "name": "total_rows",
+            "expr": "SUM(total_rows)",
+            "displayName": "Total Rows"
+          }
+        ]
+      }
+    }
+  ],
+  "pages": [
+    {
+      "name": "34e0cc58",
+      "displayName": "DQ Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "counter_total_checks",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_run_log",
+                  "fields": [
+                    {
+                      "name": "measure(checks_run)",
+                      "expression": "MEASURE(`checks_run`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Total Checks Run"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(checks_run)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_passed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_run_log",
+                  "fields": [
+                    {
+                      "name": "measure(checks_passed)",
+                      "expression": "MEASURE(`checks_passed`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Checks Passed"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(checks_passed)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_failed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_run_log",
+                  "fields": [
+                    {
+                      "name": "measure(checks_failed)",
+                      "expression": "MEASURE(`checks_failed`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Checks Failed"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(checks_failed)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_warned",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_run_log",
+                  "fields": [
+                    {
+                      "name": "measure(checks_warned)",
+                      "expression": "MEASURE(`checks_warned`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Checks Warned"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(checks_warned)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_by_layer",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_results",
+                  "fields": [
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "measure(check_count)",
+                      "expression": "MEASURE(`check_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Checks by Layer and Status"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "layer",
+                  "displayName": "layer",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(check_count)",
+                  "displayName": "check_count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "status",
+                  "displayName": "status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_by_category",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_results",
+                  "fields": [
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "check_category",
+                      "expression": "`check_category`"
+                    },
+                    {
+                      "name": "measure(check_count)",
+                      "expression": "MEASURE(`check_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Checks by Category and Status"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "check_category",
+                  "displayName": "check_category",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(check_count)",
+                  "displayName": "check_count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "status",
+                  "displayName": "status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "table_run_log",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_run_log",
+                  "fields": [
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "overall_status",
+                      "expression": "`overall_status`"
+                    },
+                    {
+                      "name": "measure(checks_run)",
+                      "expression": "MEASURE(`checks_run`)"
+                    },
+                    {
+                      "name": "measure(checks_passed)",
+                      "expression": "MEASURE(`checks_passed`)"
+                    },
+                    {
+                      "name": "measure(checks_warned)",
+                      "expression": "MEASURE(`checks_warned`)"
+                    },
+                    {
+                      "name": "measure(checks_failed)",
+                      "expression": "MEASURE(`checks_failed`)"
+                    },
+                    {
+                      "name": "batch_month",
+                      "expression": "`batch_month`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Latest Run Summary by Layer"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "layer"
+                  },
+                  {
+                    "fieldName": "overall_status"
+                  },
+                  {
+                    "fieldName": "measure(checks_run)"
+                  },
+                  {
+                    "fieldName": "measure(checks_passed)"
+                  },
+                  {
+                    "fieldName": "measure(checks_warned)"
+                  },
+                  {
+                    "fieldName": "measure(checks_failed)"
+                  },
+                  {
+                    "fieldName": "batch_month"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_by_status",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_results",
+                  "fields": [
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "measure(check_count)",
+                      "expression": "MEASURE(`check_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Check Count by Status"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "status",
+                  "displayName": "status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(check_count)",
+                  "displayName": "check_count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "status",
+                  "displayName": "status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 8,
+            "width": 6,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "table_results",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_results",
+                  "fields": [
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "check_name",
+                      "expression": "`check_name`"
+                    },
+                    {
+                      "name": "check_category",
+                      "expression": "`check_category`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "measure(failed_rows)",
+                      "expression": "MEASURE(`failed_rows`)"
+                    },
+                    {
+                      "name": "measure(total_rows)",
+                      "expression": "MEASURE(`total_rows`)"
+                    },
+                    {
+                      "name": "measure(failed_pct)",
+                      "expression": "MEASURE(`failed_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "DQ Check Results Detail"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "layer"
+                  },
+                  {
+                    "fieldName": "table_name"
+                  },
+                  {
+                    "fieldName": "check_name"
+                  },
+                  {
+                    "fieldName": "check_category"
+                  },
+                  {
+                    "fieldName": "status"
+                  },
+                  {
+                    "fieldName": "measure(failed_rows)"
+                  },
+                  {
+                    "fieldName": "measure(total_rows)"
+                  },
+                  {
+                    "fieldName": "measure(failed_pct)"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 12,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "rules_catalogue",
+      "displayName": "Rules Catalogue",
+      "layout": [
+        {
+          "widget": {
+            "name": "table_rules",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_rules",
+                  "fields": [
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "check_category",
+                      "expression": "`check_category`"
+                    },
+                    {
+                      "name": "check_name",
+                      "expression": "`check_name`"
+                    },
+                    {
+                      "name": "blocking",
+                      "expression": "`blocking`"
+                    },
+                    {
+                      "name": "silver_action",
+                      "expression": "`silver_action`"
+                    },
+                    {
+                      "name": "rule_description",
+                      "expression": "`rule_description`"
+                    },
+                    {
+                      "name": "rationale",
+                      "expression": "`rationale`"
+                    },
+                    {
+                      "name": "threshold_pct",
+                      "expression": "`threshold_pct`"
+                    },
+                    {
+                      "name": "warn_pct",
+                      "expression": "`warn_pct`"
+                    },
+                    {
+                      "name": "min_failed_rows",
+                      "expression": "`min_failed_rows`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "DQ Rules Catalogue"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "layer"
+                  },
+                  {
+                    "fieldName": "table_name"
+                  },
+                  {
+                    "fieldName": "check_category"
+                  },
+                  {
+                    "fieldName": "check_name"
+                  },
+                  {
+                    "fieldName": "blocking"
+                  },
+                  {
+                    "fieldName": "silver_action"
+                  },
+                  {
+                    "fieldName": "rule_description"
+                  },
+                  {
+                    "fieldName": "rationale"
+                  },
+                  {
+                    "fieldName": "threshold_pct"
+                  },
+                  {
+                    "fieldName": "warn_pct"
+                  },
+                  {
+                    "fieldName": "min_failed_rows"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 14
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "trends",
+      "displayName": "Trends",
+      "layout": [
+        {
+          "widget": {
+            "name": "line_monthly_status",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_monthly",
+                  "fields": [
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "batch_month",
+                      "expression": "`batch_month`"
+                    },
+                    {
+                      "name": "measure(check_count)",
+                      "expression": "MEASURE(`check_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Monthly Check Count by Status"
+              },
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "batch_month",
+                  "displayName": "batch_month",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(check_count)",
+                  "displayName": "check_count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "status",
+                  "displayName": "status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_monthly_layer",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_monthly",
+                  "fields": [
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "batch_month",
+                      "expression": "`batch_month`"
+                    },
+                    {
+                      "name": "measure(check_count)",
+                      "expression": "MEASURE(`check_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Monthly Checks by Layer"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "batch_month",
+                  "displayName": "batch_month",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(check_count)",
+                  "displayName": "check_count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "layer",
+                  "displayName": "layer",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_monthly_failed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_monthly",
+                  "fields": [
+                    {
+                      "name": "check_category",
+                      "expression": "`check_category`"
+                    },
+                    {
+                      "name": "batch_month",
+                      "expression": "`batch_month`"
+                    },
+                    {
+                      "name": "measure(failed_rows)",
+                      "expression": "MEASURE(`failed_rows`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Monthly Failed Rows by Category"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "batch_month",
+                  "displayName": "batch_month",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(failed_rows)",
+                  "displayName": "failed_rows",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "check_category",
+                  "displayName": "check_category",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 6,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}

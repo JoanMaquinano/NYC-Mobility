@@ -1,7 +1,7 @@
 resources:
   jobs:
-    NYC_Mobility:
-      name: NYC Mobility
+    NYC_Mobility_GX:
+      name: NYC Mobility - GX
 
       tasks:
         - task_key: Preload_Checks
@@ -40,20 +40,28 @@ resources:
               source: WORKSPACE
             warehouse_id: ${var.warehouse_id}
 
-        - task_key: Bronze_QC
-          depends_on:
+        - depends_on:
             - task_key: Weather_Bronze
             - task_key: Taxi_Zones_Bronze
             - task_key: Green_Taxi_Bronze
-          sql_task:
-            file:
-              path: ../../tests/02_bronze_all_qc.sql
-              source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
-
+          environment_key: Default
+          spark_python_task:
+            parameters:
+              - --layer
+              - bronze
+              - --catalog
+              - '{{job.parameters.catalog}}'
+              - --source-path
+              - '{{job.parameters.taxi_source_path}}'
+              - --run-id
+              - '{{job.run_id}}'
+              - --enforce
+              - '{{job.parameters.gx_bronze_enforce}}'
+            python_file: ../../tests/07_gx_checks.py
+          task_key: GX
         - task_key: Green_Taxi_Silver
           depends_on:
-            - task_key: Bronze_QC
+            - task_key: GX
           sql_task:
             file:
               path: ../../src/green_taxi/silver/green_taxi_clean.sql
@@ -62,7 +70,7 @@ resources:
 
         - task_key: Taxi_Zone_Silver
           depends_on:
-            - task_key: Bronze_QC
+            - task_key: GX
           sql_task:
             file:
               path: ../../src/taxi_zones/silver/taxi_zones_clean.sql
@@ -71,27 +79,33 @@ resources:
 
         - task_key: Weather_Silver
           depends_on:
-            - task_key: Bronze_QC
+            - task_key: GX
           sql_task:
             file:
               path: ../../src/weather/silver/weather_clean.sql
               source: WORKSPACE
             warehouse_id: ${var.warehouse_id}
 
-        - task_key: Silver_QC
-          depends_on:
+        - depends_on:
             - task_key: Taxi_Zone_Silver
             - task_key: Green_Taxi_Silver
             - task_key: Weather_Silver
-          sql_task:
-            file:
-              path: ../../tests/03_silver_all_qc.sql
-              source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
-
+          environment_key: Default
+          spark_python_task:
+            parameters:
+              - --layer
+              - silver
+              - --catalog
+              - '{{job.parameters.catalog}}'
+              - --run-id
+              - '{{job.run_id}}'
+              - --enforce
+              - '{{job.parameters.gx_silver_enforce}}'
+            python_file: ../../tests/07_gx_checks.py
+          task_key: GX2
         - task_key: Dim_Date
           depends_on:
-            - task_key: Silver_QC
+            - task_key: GX2
           sql_task:
             file:
               path: ../../src/weather/gold/dim_date.sql
@@ -100,7 +114,7 @@ resources:
 
         - task_key: Dim_Taxi_Zone
           depends_on:
-            - task_key: Silver_QC
+            - task_key: GX2
           sql_task:
             file:
               path: ../../src/taxi_zones/gold/dim_taxi_zone.sql
@@ -109,7 +123,7 @@ resources:
 
         - task_key: Dim_Weather
           depends_on:
-            - task_key: Silver_QC
+            - task_key: GX2
           sql_task:
             file:
               path: ../../src/weather/gold/dim_weather.sql
@@ -118,33 +132,52 @@ resources:
 
         - task_key: Fact_Trip
           depends_on:
-            - task_key: Silver_QC
+            - task_key: GX2
           sql_task:
             file:
               path: ../../src/green_taxi/gold/fact_taxi_trip.sql
               source: WORKSPACE
             warehouse_id: ${var.warehouse_id}
 
-        - task_key: Gold_QC
-          depends_on:
+        - depends_on:
             - task_key: Dim_Weather
+            - task_key: GX2
             - task_key: Dim_Taxi_Zone
             - task_key: Dim_Date
             - task_key: Fact_Trip
-            - task_key: Silver_QC
-          sql_task:
-            file:
-              path: ../../tests/04_gold_all_qc.sql
-              source: WORKSPACE
-            warehouse_id: ${var.warehouse_id}
-
+          environment_key: Default
+          spark_python_task:
+            parameters:
+              - --layer
+              - gold
+              - --catalog
+              - '{{job.parameters.catalog}}'
+              - --run-id
+              - '{{job.run_id}}'
+              - --enforce
+              - '{{job.parameters.gx_gold_enforce}}'
+            python_file: ../../tests/07_gx_checks.py
+          task_key: GX3
       queue:
         enabled: true
 
       parameters:
         - name: year_month
           default: 2026-03
+        - name: catalog
+          default: nyc_mobility
+        - name: taxi_source_path
+          default: /Volumes/workspace/default/ftw-b12-de/groups/week-08/group-d/green-taxi/
+        # Preserve the existing Bronze/Silver report-only setting explicitly.
+        - name: gx_bronze_enforce
+          default: "false"
+        - name: gx_silver_enforce
+          default: "false"
+        - name: gx_gold_enforce
+          default: "true"
 
+        - default: weather_march_2026.csv
+          name: weather_file
       environments:
         - environment_key: Default
           spec:

@@ -1,9 +1,9 @@
-name: Auto Format & Commit
+name: Auto Format Source Files
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    branches: [main, develop]
+    branches: [main, develop, feature/staging-part-2]
 
 permissions:
   contents: write
@@ -28,40 +28,25 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Format Python files
         run: |
-          pip install --upgrade pip
-          pip install sqlfluff[databricks] black isort nbqa nbstripout
+          python -m black src tests
+          python -m isort src tests
+      
+      - name: Format Databricks SQL files
+        run: python -m sqlfluff fix --config .sqlfluff src tests --force
 
       - name: Run SQLFluff fix
         run: |
-          sqlfluff fix --dialect databricks . --force || true
-        continue-on-error: true
+          sqlfluff fix --dialect databricks . --force
 
       - name: Run black formatter
         run: |
-          black . --line-length 120 || true
-        continue-on-error: true
+          black . --line-length 120
 
       - name: Run isort
         run: |
-          isort . --profile black || true
-        continue-on-error: true
-
-      - name: Format Jupyter notebooks with black
-        run: |
-          nbqa black . --line-length 120 --exclude notebooks/,venv/ || true
-        continue-on-error: true
-
-      - name: Sort imports in Jupyter notebooks with isort
-        run: |
-          nbqa isort . --profile black --exclude notebooks/,venv/ || true
-        continue-on-error: true
-
-      - name: Strip notebook outputs
-        run: |
-          nbstripout **/*.ipynb || true
-        continue-on-error: true
+          isort . --profile black
 
       - name: Commit changes if any
         uses: stefanzweifel/git-auto-commit-action@v5
@@ -69,12 +54,8 @@ jobs:
           commit_message: 'chore: auto-format SQL, Python, and Jupyter notebooks'
           commit_options: '--no-verify'
           file_pattern: |
-            *.py
-            *.sql
-            *.ipynb
-            src/
-            tests/
-            dashboards/
+            src/**
+            tests/**
           skip_fetch: false
           skip_checkout: false
 
@@ -84,7 +65,6 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const fs = require('fs');
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
